@@ -7,11 +7,52 @@ import urllib.request
 from typing import Any
 
 
+def env_enabled(name: str, default: str = "true") -> bool:
+    return os.getenv(name, default).strip().lower() not in {"0", "false", "no", "off"}
+
+
 def telegram_configured() -> bool:
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
-    enabled = os.getenv("TELEGRAM_ENABLED", "true").strip().lower() not in {"0", "false", "no", "off"}
+    enabled = env_enabled("TELEGRAM_ENABLED")
     return enabled and bool(token) and bool(chat_id)
+
+
+def format_startup_message(*, strategy_id: str, scan_interval_seconds: int, heartbeat_interval_seconds: int) -> str:
+    return "\n".join(
+        [
+            "[STARTUP][R14H] Bot da khoi dong",
+            f"Strategy={strategy_id}",
+            "Mode=PAPER_ONLY_NOT_LIVE",
+            f"Scan interval={scan_interval_seconds}s",
+            f"Heartbeat interval={heartbeat_interval_seconds}s",
+            "Symbols=BTCUSDT 4h, ETHUSDT 1h",
+        ]
+    )
+
+
+def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
+    groups = scan_summary.get("groups", [])
+    lines = [
+        "[HEARTBEAT][R14H] Bot dang chay",
+        "Mode=PAPER_ONLY_NOT_LIVE",
+        "New signals={count} | Active positions={active}".format(
+            count=scan_summary.get("new_signal_count", 0),
+            active=scan_summary.get("active_position_count", 0),
+        ),
+    ]
+    for group in groups:
+        lines.append(
+            "{symbol} {tf}: {status} | bar={bar} | premium_z={premium:.4f} | vol_z={volz:.2f}".format(
+                symbol=group.get("symbol", ""),
+                tf=group.get("timeframe", ""),
+                status=group.get("status", ""),
+                bar=group.get("latest_closed_bar_utc", ""),
+                premium=float(group.get("premium_close_prior_z_24") or 0.0),
+                volz=float(group.get("quote_volume_prior_z_20") or 0.0),
+            )
+        )
+    return "\n".join(lines)
 
 
 def format_signal_message(signal: dict[str, Any]) -> str:
@@ -19,7 +60,7 @@ def format_signal_message(signal: dict[str, Any]) -> str:
     features = signal.get("features", {})
     return "\n".join(
         [
-            "[PAPER][R14H] {symbol} {side}".format(
+            "[TRADE][PAPER][R14H] {symbol} {side}".format(
                 symbol=signal.get("symbol", ""),
                 side=signal.get("side", ""),
             ),

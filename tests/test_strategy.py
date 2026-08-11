@@ -3,7 +3,7 @@ from __future__ import annotations
 import unittest
 
 from paper_signal_bot.strategy import INTERVAL_MS, evaluate_latest, prior_zscore
-from paper_signal_bot.telegram import format_signal_message
+from paper_signal_bot.telegram import format_heartbeat_message, format_signal_message, format_startup_message
 
 
 def kline(open_time: int, open_price: float, high: float, low: float, close: float, quote_volume: float, taker_ratio: float) -> list:
@@ -106,8 +106,36 @@ class StrategyTests(unittest.TestCase):
             },
         }
         text = format_signal_message(signal)
-        self.assertIn("[PAPER][R14H] ETHUSDT SHORT", text)
+        self.assertIn("[TRADE][PAPER][R14H] ETHUSDT SHORT", text)
         self.assertIn("Status=PAPER_ONLY_NOT_LIVE", text)
+
+    def test_startup_and_heartbeat_messages(self) -> None:
+        startup = format_startup_message(
+            strategy_id="R14H_TAKER_FLOW_PREMIUM_FILTER_STRICT_PASS",
+            scan_interval_seconds=300,
+            heartbeat_interval_seconds=3600,
+        )
+        self.assertIn("[STARTUP][R14H]", startup)
+        self.assertIn("Mode=PAPER_ONLY_NOT_LIVE", startup)
+
+        heartbeat = format_heartbeat_message(
+            {
+                "new_signal_count": 0,
+                "active_position_count": 0,
+                "groups": [
+                    {
+                        "symbol": "ETHUSDT",
+                        "timeframe": "1h",
+                        "status": "NO_SIGNAL",
+                        "latest_closed_bar_utc": "2026-08-11T13:00:00+00:00",
+                        "premium_close_prior_z_24": 0.12,
+                        "quote_volume_prior_z_20": 1.5,
+                    }
+                ],
+            }
+        )
+        self.assertIn("[HEARTBEAT][R14H]", heartbeat)
+        self.assertIn("ETHUSDT 1h: NO_SIGNAL", heartbeat)
 
 
 if __name__ == "__main__":

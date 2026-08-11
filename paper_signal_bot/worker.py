@@ -7,7 +7,14 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .strategy import STRATEGY_ID
-from .telegram import TelegramSender, format_signal_message, telegram_configured
+from .telegram import (
+    TelegramSender,
+    env_enabled,
+    format_heartbeat_message,
+    format_signal_message,
+    format_startup_message,
+    telegram_configured,
+)
 from .web import SERVICE
 
 
@@ -48,8 +55,12 @@ def compact_scan(scan_result: dict[str, Any]) -> dict[str, Any]:
 
 def main() -> None:
     interval = int(os.getenv("SCAN_INTERVAL_SECONDS", "300"))
+    heartbeat_interval = int(os.getenv("HEARTBEAT_INTERVAL_SECONDS", "3600"))
     run_once = os.getenv("WORKER_RUN_ONCE", "").lower() in {"1", "true", "yes"}
     telegram = TelegramSender()
+    startup_enabled = env_enabled("TELEGRAM_STARTUP_ENABLED")
+    heartbeat_enabled = env_enabled("TELEGRAM_HEARTBEAT_ENABLED")
+    last_heartbeat_sent = 0.0
     print(
         json.dumps(
             {
@@ -58,17 +69,70 @@ def main() -> None:
                 "strategy_id": STRATEGY_ID,
                 "paper_only": True,
                 "scan_interval_seconds": interval,
+                "heartbeat_interval_seconds": heartbeat_interval,
                 "run_once": run_once,
                 "telegram_configured": telegram_configured(),
+                "telegram_startup_enabled": startup_enabled,
+                "telegram_heartbeat_enabled": heartbeat_enabled,
             },
             sort_keys=True,
         ),
         flush=True,
     )
+    if startup_enabled:
+        try:
+            startup_result = telegram.send_message(
+                format_startup_message(
+                    strategy_id=STRATEGY_ID,
+                    scan_interval_seconds=interval,
+                    heartbeat_interval_seconds=heartbeat_interval,
+                )
+            )
+            print(
+                json.dumps(
+                    {
+                        "event": "telegram_startup",
+                        "time_utc": now_iso(),
+                        "ok": startup_result.get("ok", False),
+                        "skipped": startup_result.get("skipped", False),
+                        "reason": startup_result.get("reason"),
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+        except Exception as exc:
+            print(
+                json.dumps({"event": "telegram_startup_error", "time_utc": now_iso(), "error": str(exc)}, sort_keys=True),
+                flush=True,
+            )
     while True:
         try:
             scan_result = SERVICE.scan_once()
-            print(json.dumps(compact_scan(scan_result), sort_keys=True), flush=True)
+            scan_summary = compact_scan(scan_result)
+            print(json.dumps(scan_summary, sort_keys=True), flush=True)
+            if heartbeat_enabled and (time.monotonic() - last_heartbeat_sent >= heartbeat_interval or run_once):
+                try:
+                    heartbeat_result = telegram.send_message(format_heartbeat_message(scan_summary))
+                    last_heartbeat_sent = time.monotonic()
+                    print(
+                        json.dumps(
+                            {
+                                "event": "telegram_heartbeat",
+                                "time_utc": now_iso(),
+                                "ok": heartbeat_result.get("ok", False),
+                                "skipped": heartbeat_result.get("skipped", False),
+                                "reason": heartbeat_result.get("reason"),
+                            },
+                            sort_keys=True,
+                        ),
+                        flush=True,
+                    )
+                except Exception as exc:
+                    print(
+                        json.dumps({"event": "telegram_heartbeat_error", "time_utc": now_iso(), "error": str(exc)}, sort_keys=True),
+                        flush=True,
+                    )
             for signal in scan_result.get("scan", {}).get("groups", []):
                 for item in signal.get("signals", []):
                     print(json.dumps({"event": "paper_signal", **item}, sort_keys=True), flush=True)

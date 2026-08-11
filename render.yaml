@@ -16,6 +16,12 @@ services:
         value: "500"
       - key: TELEGRAM_ENABLED
         value: "true"
+      - key: TELEGRAM_STARTUP_ENABLED
+        value: "true"
+      - key: TELEGRAM_HEARTBEAT_ENABLED
+        value: "true"
+      - key: HEARTBEAT_INTERVAL_SECONDS
+        value: "3600"
       - key: TELEGRAM_BOT_TOKEN
         sync: false
       - key: TELEGRAM_CHAT_ID
