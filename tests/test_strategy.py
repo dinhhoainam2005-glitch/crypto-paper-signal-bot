@@ -3,6 +3,7 @@ from __future__ import annotations
 import unittest
 
 from paper_signal_bot.strategy import INTERVAL_MS, evaluate_latest, prior_zscore
+from paper_signal_bot.telegram import format_signal_message
 
 
 def kline(open_time: int, open_price: float, high: float, low: float, close: float, quote_volume: float, taker_ratio: float) -> list:
@@ -87,6 +88,26 @@ class StrategyTests(unittest.TestCase):
             now_ms=now_ms,
         )
         self.assertEqual(blocked["status"], "NO_SIGNAL")
+
+    def test_telegram_message_is_plain_paper_signal(self) -> None:
+        signal = {
+            "symbol": "ETHUSDT",
+            "side": "SHORT",
+            "timeframe": "1h",
+            "signal_time_utc": "2026-08-11T13:00:00+00:00",
+            "entry_time_utc": "2026-08-11T14:00:00+00:00",
+            "entry_price": None,
+            "candidate": {"candidate_id": "abc", "hold_bars": 12},
+            "features": {
+                "premium_close_prior_z_24": 0.12,
+                "full_derivatives_state_available": True,
+                "mkt_taker_quote_imbalance_derived": -0.22,
+                "quote_volume_prior_z_20": 1.5,
+            },
+        }
+        text = format_signal_message(signal)
+        self.assertIn("[PAPER][R14H] ETHUSDT SHORT", text)
+        self.assertIn("Status=PAPER_ONLY_NOT_LIVE", text)
 
 
 if __name__ == "__main__":

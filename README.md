@@ -43,6 +43,18 @@ python -m paper_signal_bot.worker
 
 Background workers do not expose a public URL. Check Render Logs for `worker_started`, `paper_scan`, and `paper_signal` events.
 
+Required environment variables:
+
+```text
+PAPER_ONLY=true
+BINANCE_FAPI_BASE_URL=https://fapi.binance.com
+SCAN_INTERVAL_SECONDS=300
+MAX_SIGNALS_RETAINED=500
+TELEGRAM_ENABLED=true
+TELEGRAM_BOT_TOKEN=<your bot token from BotFather>
+TELEGRAM_CHAT_ID=<your Telegram chat id>
+```
+
 For local worker smoke test:
 
 ```powershell

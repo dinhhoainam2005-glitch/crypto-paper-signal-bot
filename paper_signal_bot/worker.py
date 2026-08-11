@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from .strategy import STRATEGY_ID
+from .telegram import TelegramSender, format_signal_message, telegram_configured
 from .web import SERVICE
 
 
@@ -48,6 +49,7 @@ def compact_scan(scan_result: dict[str, Any]) -> dict[str, Any]:
 def main() -> None:
     interval = int(os.getenv("SCAN_INTERVAL_SECONDS", "300"))
     run_once = os.getenv("WORKER_RUN_ONCE", "").lower() in {"1", "true", "yes"}
+    telegram = TelegramSender()
     print(
         json.dumps(
             {
@@ -57,6 +59,7 @@ def main() -> None:
                 "paper_only": True,
                 "scan_interval_seconds": interval,
                 "run_once": run_once,
+                "telegram_configured": telegram_configured(),
             },
             sort_keys=True,
         ),
@@ -69,6 +72,35 @@ def main() -> None:
             for signal in scan_result.get("scan", {}).get("groups", []):
                 for item in signal.get("signals", []):
                     print(json.dumps({"event": "paper_signal", **item}, sort_keys=True), flush=True)
+                    try:
+                        telegram_result = telegram.send_message(format_signal_message(item))
+                        print(
+                            json.dumps(
+                                {
+                                    "event": "telegram_send",
+                                    "time_utc": now_iso(),
+                                    "ok": telegram_result.get("ok", False),
+                                    "skipped": telegram_result.get("skipped", False),
+                                    "reason": telegram_result.get("reason"),
+                                    "signal_id": item.get("signal_id"),
+                                },
+                                sort_keys=True,
+                            ),
+                            flush=True,
+                        )
+                    except Exception as exc:
+                        print(
+                            json.dumps(
+                                {
+                                    "event": "telegram_error",
+                                    "time_utc": now_iso(),
+                                    "error": str(exc),
+                                    "signal_id": item.get("signal_id"),
+                                },
+                                sort_keys=True,
+                            ),
+                            flush=True,
+                        )
         except Exception as exc:
             print(
                 json.dumps(
