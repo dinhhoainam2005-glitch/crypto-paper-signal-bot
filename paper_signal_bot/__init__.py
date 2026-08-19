@@ -1,4 +1,4 @@
-"""Paper-only signal service for the R14H/R14I research candidate."""
+"""Paper-only signal service for the R15C research candidate."""
 
 __all__ = ["__version__"]
 

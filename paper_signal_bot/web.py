@@ -44,8 +44,18 @@ class SignalService:
             for (symbol, timeframe), _candidates in self.groups.items():
                 try:
                     klines = self.client.klines(symbol, timeframe, limit=220)
-                    premium = self.client.premium_index_klines(symbol, timeframe, limit=100)
-                    derivatives_ok = self.client.derivatives_state_available(symbol)
+                    premium_error = None
+                    derivatives_error = None
+                    try:
+                        premium = self.client.premium_index_klines(symbol, timeframe, limit=100)
+                    except Exception as exc:
+                        premium = []
+                        premium_error = str(exc)
+                    try:
+                        derivatives_ok = self.client.derivatives_state_available(symbol)
+                    except Exception as exc:
+                        derivatives_ok = False
+                        derivatives_error = str(exc)
                     result = evaluate_latest(
                         symbol=symbol,
                         timeframe=timeframe,
@@ -53,12 +63,18 @@ class SignalService:
                         premium_klines=premium,
                         derivatives_state_available=derivatives_ok,
                     )
+                    if premium_error is not None:
+                        result["premium_error"] = premium_error
+                    if derivatives_error is not None:
+                        result["derivatives_error"] = derivatives_error
                     for signal in result.get("signals", []):
                         if signal["asset"] in active_assets:
                             signal["suppressed_reason"] = "ACTIVE_POSITION"
                             continue
-                        signal_id = "{strategy}:{candidate}:{time}".format(
+                        signal_id = "{strategy}:{symbol}:{timeframe}:{candidate}:{time}".format(
                             strategy=STRATEGY_ID,
+                            symbol=signal["symbol"],
+                            timeframe=signal["timeframe"],
                             candidate=signal["candidate"]["candidate_id"],
                             time=signal["signal_time_ms"],
                         )
@@ -134,14 +150,16 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(SERVICE.scan_once())
             return
         if parsed.path == "/spec":
-            from .strategy import CANDIDATES, PREMIUM_Z_MAX
+            from .strategy import CANDIDATES, PREMIUM_Z_MAX, REALIZED_VOL_24_MIN, VOLUME_Z_MIN
 
             self.send_json(
                 {
                     "strategy_id": STRATEGY_ID,
                     "paper_only": True,
                     "premium_close_prior_z_24_max": PREMIUM_Z_MAX,
-                    "full_derivatives_state_available_required": True,
+                    "quote_volume_prior_z_20_min": VOLUME_Z_MIN,
+                    "realized_vol_24_min": REALIZED_VOL_24_MIN,
+                    "full_derivatives_state_available_required": False,
                     "candidates": [candidate.__dict__ for candidate in CANDIDATES],
                 }
             )

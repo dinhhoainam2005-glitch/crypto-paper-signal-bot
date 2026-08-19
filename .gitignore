@@ -5,6 +5,7 @@ __pycache__/
 .venv/
 venv/
 data/
+r*_output/
 r14h_output/_pycache_r14h/
 r14h_output/_python_temp_r14h/
 r14i_output/_pycache_r14i/

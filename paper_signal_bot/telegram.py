@@ -50,10 +50,19 @@ def fmt_float(value: Any, digits: int = 4) -> str:
         return "n/a"
 
 
+def bot_label(strategy_id: str | None = None) -> str:
+    text = strategy_id or ""
+    if text.startswith("R15C"):
+        return "R15C Paper Bot"
+    if text.startswith("R14H"):
+        return "R14H Paper Bot"
+    return "Paper Signal Bot"
+
+
 def format_startup_message(*, strategy_id: str, scan_interval_seconds: int, heartbeat_interval_seconds: int) -> str:
     return "\n".join(
         [
-            "<b>STARTUP | R14H Paper Bot</b>",
+            f"<b>STARTUP | {bot_label(strategy_id)}</b>",
             "",
             "<b>Status</b>: Running",
             "<b>Mode</b>: PAPER ONLY",
@@ -68,14 +77,16 @@ def format_startup_message(*, strategy_id: str, scan_interval_seconds: int, hear
             "<b>Markets</b>",
             "BTCUSDT 4h",
             "ETHUSDT 1h",
+            "ETHUSDT 4h",
         ]
     )
 
 
 def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
     groups = scan_summary.get("groups", [])
+    strategy_id = scan_summary.get("strategy_id", "")
     lines = [
-        "<b>HEARTBEAT | R14H Paper Bot</b>",
+        f"<b>HEARTBEAT | {bot_label(strategy_id)}</b>",
         "",
         "<b>Status</b>: Running",
         "<b>Mode</b>: PAPER ONLY",
@@ -102,6 +113,9 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
                 "Volume z20: <code>{volz}</code>".format(
                     volz=fmt_float(group.get("quote_volume_prior_z_20"), 2),
                 ),
+                "Realized vol24: <code>{rv}</code>".format(
+                    rv=fmt_float(group.get("realized_vol_24"), 4),
+                ),
             ]
         )
     return "\n".join(lines)
@@ -110,9 +124,10 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
 def format_signal_message(signal: dict[str, Any]) -> str:
     candidate = signal.get("candidate", {})
     features = signal.get("features", {})
+    strategy_id = signal.get("strategy_id", "")
     return "\n".join(
         [
-            "<b>TRADE | PAPER | R14H</b>",
+            "<b>TRADE | PAPER | {label}</b>".format(label=esc(bot_label(strategy_id).replace(" Paper Bot", ""))),
             "<b>{symbol} {side}</b>".format(
                 symbol=esc(signal.get("symbol", "")),
                 side=esc(signal.get("side", "")),
@@ -138,17 +153,19 @@ def format_signal_message(signal: dict[str, Any]) -> str:
             "Exit model: <code>HOLD_{hold}_BARS</code>".format(hold=esc(candidate.get("hold_bars", ""))),
             "",
             "<b>Filters</b>",
-            "Premium z24: <code>{premium}</code> <= <code>0.882</code>".format(
-                premium=fmt_float(features.get("premium_close_prior_z_24"), 4),
+            "Volume z20: <code>{volume_z}</code> >= <code>{min_z}</code>".format(
+                volume_z=fmt_float(features.get("quote_volume_prior_z_20"), 2),
+                min_z=fmt_float(features.get("volume_z_min"), 2),
             ),
-            "Derivatives state: <code>{derivatives}</code>".format(
-                derivatives=esc(features.get("full_derivatives_state_available", False)),
+            "Realized vol24: <code>{rv}</code> >= <code>{rv_min}</code>".format(
+                rv=fmt_float(features.get("realized_vol_24"), 4),
+                rv_min=fmt_float(features.get("realized_vol_24_min"), 4),
             ),
             "Taker imbalance: <code>{imbalance}</code>".format(
                 imbalance=fmt_float(features.get("mkt_taker_quote_imbalance_derived"), 4),
             ),
-            "Volume z20: <code>{volume_z}</code>".format(
-                volume_z=fmt_float(features.get("quote_volume_prior_z_20"), 2),
+            "Premium z24: <code>{premium}</code> (diagnostic)".format(
+                premium=fmt_float(features.get("premium_close_prior_z_24"), 4),
             ),
             "",
             "<b>Status</b>: PAPER ONLY, NOT LIVE",

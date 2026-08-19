@@ -1,6 +1,6 @@
 # Crypto Paper Signal Bot
 
-Paper-only service for the R14H/R14I validated taker-flow breakout research candidate.
+Paper-only service for the R15C taker-flow composite volatility-filter research candidate.
 
 ## Status
 
@@ -8,8 +8,16 @@ This repository is research-to-paper only.
 
 - Live trading: disabled
 - Exchange order placement: not implemented
-- Telegram/live alerts: not approved
-- Render target: Python web service
+- Telegram alerts: paper notifications only
+- Render target: Python background worker
+
+Current paper strategy:
+
+- Strategy: `R15C_TAKER_FLOW_COMPOSITE_VOL_FILTER_PAPER_OBSERVATION`
+- Markets: `BTCUSDT 4h`, `ETHUSDT 1h`, `ETHUSDT 4h`
+- Directions: BTC 4h LONG, ETH 4h LONG, ETH 1h SHORT
+- Gate: taker-flow breakout with `quote_volume_prior_z_20 >= 1.659151276879225` and `realized_vol_24 >= 0.005616411766518594`
+- Research status: near-pass stress candidate, approved for paper observation only
 
 ## Local Run
 

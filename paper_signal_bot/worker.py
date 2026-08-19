@@ -37,7 +37,10 @@ def compact_scan(scan_result: dict[str, Any]) -> dict[str, Any]:
                 "quote_volume_prior_z_20": features.get("quote_volume_prior_z_20"),
                 "mkt_taker_quote_imbalance_derived": features.get("mkt_taker_quote_imbalance_derived"),
                 "premium_close_prior_z_24": features.get("premium_close_prior_z_24"),
+                "realized_vol_24": features.get("realized_vol_24"),
                 "full_derivatives_state_available": features.get("full_derivatives_state_available"),
+                "premium_error": group.get("premium_error"),
+                "derivatives_error": group.get("derivatives_error"),
                 "error": group.get("error"),
             }
         )

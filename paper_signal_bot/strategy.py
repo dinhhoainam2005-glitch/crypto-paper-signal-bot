@@ -1,13 +1,16 @@
 from __future__ import annotations
 
+import math
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 from statistics import fmean, pstdev
 from typing import Any
 
 
-STRATEGY_ID = "R14H_TAKER_FLOW_PREMIUM_FILTER_STRICT_PASS"
-PREMIUM_Z_MAX = 0.8819827228613499
+STRATEGY_ID = "R15C_TAKER_FLOW_COMPOSITE_VOL_FILTER_PAPER_OBSERVATION"
+VOLUME_Z_MIN = 1.659151276879225
+REALIZED_VOL_24_MIN = 0.005616411766518594
+PREMIUM_Z_MAX: float | None = None
 INTERVAL_MS = {
     "1h": 60 * 60 * 1000,
     "4h": 4 * 60 * 60 * 1000,
@@ -32,8 +35,8 @@ class Candidate:
 CANDIDATES: tuple[Candidate, ...] = (
     Candidate(
         candidate_id="taker_flow_breakout_LONG_4h_lb12_h3_b0.001_vz1.0_f0.05",
-        symbol="BTCUSDT",
-        asset="BTC",
+        symbol="ETHUSDT",
+        asset="ETH",
         timeframe="4h",
         direction="LONG",
         lookback=12,
@@ -41,12 +44,25 @@ CANDIDATES: tuple[Candidate, ...] = (
         buffer=0.001,
         volz_min=1.0,
         flow_threshold=0.05,
-        selection_score=4.468521943768684,
+        selection_score=6.325308541997136,
+    ),
+    Candidate(
+        candidate_id="taker_flow_breakout_LONG_4h_lb12_h3_b0.0_vz1.0_f0.05",
+        symbol="ETHUSDT",
+        asset="ETH",
+        timeframe="4h",
+        direction="LONG",
+        lookback=12,
+        hold_bars=3,
+        buffer=0.0,
+        volz_min=1.0,
+        flow_threshold=0.05,
+        selection_score=6.294633853195612,
     ),
     Candidate(
         candidate_id="taker_flow_breakout_LONG_4h_lb6_h3_b0.001_vz1.0_f0.05",
-        symbol="BTCUSDT",
-        asset="BTC",
+        symbol="ETHUSDT",
+        asset="ETH",
         timeframe="4h",
         direction="LONG",
         lookback=6,
@@ -54,12 +70,12 @@ CANDIDATES: tuple[Candidate, ...] = (
         buffer=0.001,
         volz_min=1.0,
         flow_threshold=0.05,
-        selection_score=4.597104732753622,
+        selection_score=5.815152544451789,
     ),
     Candidate(
         candidate_id="taker_flow_breakout_LONG_4h_lb6_h3_b0.0_vz1.0_f0.05",
-        symbol="BTCUSDT",
-        asset="BTC",
+        symbol="ETHUSDT",
+        asset="ETH",
         timeframe="4h",
         direction="LONG",
         lookback=6,
@@ -67,7 +83,7 @@ CANDIDATES: tuple[Candidate, ...] = (
         buffer=0.0,
         volz_min=1.0,
         flow_threshold=0.05,
-        selection_score=4.590553135629625,
+        selection_score=5.808655810628579,
     ),
     Candidate(
         candidate_id="taker_flow_breakout_SHORT_1h_lb24_h12_b0.0_vz0.5_f0.15",
@@ -96,6 +112,32 @@ CANDIDATES: tuple[Candidate, ...] = (
         selection_score=4.907248182318826,
     ),
     Candidate(
+        candidate_id="taker_flow_breakout_SHORT_1h_lb24_h12_b0.001_vz1.0_f0.15",
+        symbol="ETHUSDT",
+        asset="ETH",
+        timeframe="1h",
+        direction="SHORT",
+        lookback=24,
+        hold_bars=12,
+        buffer=0.001,
+        volz_min=1.0,
+        flow_threshold=0.15,
+        selection_score=4.662307652002193,
+    ),
+    Candidate(
+        candidate_id="taker_flow_breakout_LONG_4h_lb6_h3_b0.001_vz1.0_f0.05",
+        symbol="BTCUSDT",
+        asset="BTC",
+        timeframe="4h",
+        direction="LONG",
+        lookback=6,
+        hold_bars=3,
+        buffer=0.001,
+        volz_min=1.0,
+        flow_threshold=0.05,
+        selection_score=4.597104732753622,
+    ),
+    Candidate(
         candidate_id="taker_flow_breakout_SHORT_1h_lb24_h4_b0.0_vz0.5_f0.15",
         symbol="ETHUSDT",
         asset="ETH",
@@ -107,6 +149,19 @@ CANDIDATES: tuple[Candidate, ...] = (
         volz_min=0.5,
         flow_threshold=0.15,
         selection_score=4.593240975607019,
+    ),
+    Candidate(
+        candidate_id="taker_flow_breakout_LONG_4h_lb6_h3_b0.0_vz1.0_f0.05",
+        symbol="BTCUSDT",
+        asset="BTC",
+        timeframe="4h",
+        direction="LONG",
+        lookback=6,
+        hold_bars=3,
+        buffer=0.0,
+        volz_min=1.0,
+        flow_threshold=0.05,
+        selection_score=4.590553135629625,
     ),
 )
 
@@ -182,6 +237,18 @@ def prior_zscore(values: list[float], index: int, window: int) -> float:
     return (values[index] - mean) / std
 
 
+def realized_volatility(values: list[float], index: int, window: int = 24, min_periods: int = 12) -> float:
+    start = max(1, index - window + 1)
+    returns = [
+        math.log(values[i] / values[i - 1])
+        for i in range(start, index + 1)
+        if values[i] > 0.0 and values[i - 1] > 0.0
+    ]
+    if len(returns) < min_periods:
+        return 0.0
+    return pstdev(returns)
+
+
 def taker_quote_imbalance(row: dict[str, Any]) -> float:
     quote_volume = row["quote_volume"]
     if quote_volume <= 0.0:
@@ -210,9 +277,9 @@ def evaluate_latest(
         return {"symbol": symbol, "timeframe": timeframe, "status": "NO_CANDIDATES", "signals": []}
 
     closed = closed_rows(klines, timeframe, now_ms=now_ms, premium=False)
-    premium_closed = closed_rows(premium_klines, timeframe, now_ms=now_ms, premium=True)
+    premium_closed = closed_rows(premium_klines, timeframe, now_ms=now_ms, premium=True) if premium_klines else []
     min_bars = max(max(candidate.lookback for candidate in candidates) + 1, 25)
-    if len(closed) < min_bars or len(premium_closed) < 25:
+    if len(closed) < min_bars:
         return {
             "symbol": symbol,
             "timeframe": timeframe,
@@ -225,20 +292,24 @@ def evaluate_latest(
     latest = closed[-1]
     index = len(closed) - 1
     quote_volumes = [row["quote_volume"] for row in closed]
+    closes = [row["close"] for row in closed]
     volz = prior_zscore(quote_volumes, index, 20)
     imbalance = taker_quote_imbalance(latest)
+    realized_vol_24 = realized_volatility(closes, index, 24, 12)
 
-    premium_by_open = {row["open_time"]: row for row in premium_closed}
-    aligned_premium = premium_by_open.get(latest["open_time"], premium_closed[-1])
-    premium_values = [row["premium_close"] for row in premium_closed]
-    premium_index = max(0, len(premium_closed) - 1)
-    for idx, row in enumerate(premium_closed):
-        if row["open_time"] == aligned_premium["open_time"]:
-            premium_index = idx
-            break
-    premium_z = prior_zscore(premium_values, premium_index, 24)
+    premium_z: float | None = None
+    if len(premium_closed) >= 25:
+        premium_by_open = {row["open_time"]: row for row in premium_closed}
+        aligned_premium = premium_by_open.get(latest["open_time"], premium_closed[-1])
+        premium_values = [row["premium_close"] for row in premium_closed]
+        premium_index = max(0, len(premium_closed) - 1)
+        for idx, row in enumerate(premium_closed):
+            if row["open_time"] == aligned_premium["open_time"]:
+                premium_index = idx
+                break
+        premium_z = prior_zscore(premium_values, premium_index, 24)
 
-    meta_ok = premium_z <= PREMIUM_Z_MAX and derivatives_state_available
+    meta_ok = volz >= VOLUME_Z_MIN and realized_vol_24 >= REALIZED_VOL_24_MIN
     raw_signals: list[dict[str, Any]] = []
     for candidate in candidates:
         prior_window = closed[index - candidate.lookback : index]
@@ -292,6 +363,9 @@ def evaluate_latest(
                     "mkt_taker_quote_imbalance_derived": imbalance,
                     "premium_close_prior_z_24": premium_z,
                     "premium_z_max": PREMIUM_Z_MAX,
+                    "volume_z_min": VOLUME_Z_MIN,
+                    "realized_vol_24": realized_vol_24,
+                    "realized_vol_24_min": REALIZED_VOL_24_MIN,
                     "full_derivatives_state_available": derivatives_state_available,
                 },
             }
@@ -310,6 +384,9 @@ def evaluate_latest(
             "quote_volume_prior_z_20": volz,
             "mkt_taker_quote_imbalance_derived": imbalance,
             "premium_close_prior_z_24": premium_z,
+            "volume_z_min": VOLUME_Z_MIN,
+            "realized_vol_24": realized_vol_24,
+            "realized_vol_24_min": REALIZED_VOL_24_MIN,
             "full_derivatives_state_available": derivatives_state_available,
         },
         "raw_signal_count": len(raw_signals),
