@@ -106,8 +106,9 @@ class StrategyTests(unittest.TestCase):
             },
         }
         text = format_signal_message(signal)
-        self.assertIn("[TRADE][PAPER][R14H] ETHUSDT SHORT", text)
-        self.assertIn("Status=PAPER_ONLY_NOT_LIVE", text)
+        self.assertIn("<b>TRADE | PAPER | R14H</b>", text)
+        self.assertIn("<b>ETHUSDT SHORT</b>", text)
+        self.assertIn("<b>Status</b>: PAPER ONLY, NOT LIVE", text)
 
     def test_startup_and_heartbeat_messages(self) -> None:
         startup = format_startup_message(
@@ -115,8 +116,8 @@ class StrategyTests(unittest.TestCase):
             scan_interval_seconds=300,
             heartbeat_interval_seconds=3600,
         )
-        self.assertIn("[STARTUP][R14H]", startup)
-        self.assertIn("Mode=PAPER_ONLY_NOT_LIVE", startup)
+        self.assertIn("<b>STARTUP | R14H Paper Bot</b>", startup)
+        self.assertIn("<b>Mode</b>: PAPER ONLY", startup)
 
         heartbeat = format_heartbeat_message(
             {
@@ -134,8 +135,9 @@ class StrategyTests(unittest.TestCase):
                 ],
             }
         )
-        self.assertIn("[HEARTBEAT][R14H]", heartbeat)
-        self.assertIn("ETHUSDT 1h: NO_SIGNAL", heartbeat)
+        self.assertIn("<b>HEARTBEAT | R14H Paper Bot</b>", heartbeat)
+        self.assertIn("<b>ETHUSDT 1h</b>", heartbeat)
+        self.assertIn("Status: <code>NO_SIGNAL</code>", heartbeat)
 
 
 if __name__ == "__main__":
