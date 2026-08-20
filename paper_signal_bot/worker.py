@@ -56,6 +56,20 @@ def compact_scan(scan_result: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def notifiable_signals(scan_result: dict[str, Any]) -> list[dict[str, Any]]:
+    scan = scan_result.get("scan", {})
+    new_signals = scan.get("new_signals")
+    if isinstance(new_signals, list):
+        return new_signals
+
+    items: list[dict[str, Any]] = []
+    for group in scan.get("groups", []):
+        for item in group.get("signals", []):
+            if item.get("signal_id") and not item.get("suppressed_reason"):
+                items.append(item)
+    return items
+
+
 def main() -> None:
     interval = int(os.getenv("SCAN_INTERVAL_SECONDS", "300"))
     heartbeat_interval = int(os.getenv("HEARTBEAT_INTERVAL_SECONDS", "3600"))
@@ -136,38 +150,37 @@ def main() -> None:
                         json.dumps({"event": "telegram_heartbeat_error", "time_utc": now_iso(), "error": str(exc)}, sort_keys=True),
                         flush=True,
                     )
-            for signal in scan_result.get("scan", {}).get("groups", []):
-                for item in signal.get("signals", []):
-                    print(json.dumps({"event": "paper_signal", **item}, sort_keys=True), flush=True)
-                    try:
-                        telegram_result = telegram.send_message(format_signal_message(item))
-                        print(
-                            json.dumps(
-                                {
-                                    "event": "telegram_send",
-                                    "time_utc": now_iso(),
-                                    "ok": telegram_result.get("ok", False),
-                                    "skipped": telegram_result.get("skipped", False),
-                                    "reason": telegram_result.get("reason"),
-                                    "signal_id": item.get("signal_id"),
-                                },
-                                sort_keys=True,
-                            ),
-                            flush=True,
-                        )
-                    except Exception as exc:
-                        print(
-                            json.dumps(
-                                {
-                                    "event": "telegram_error",
-                                    "time_utc": now_iso(),
-                                    "error": str(exc),
-                                    "signal_id": item.get("signal_id"),
-                                },
-                                sort_keys=True,
-                            ),
-                            flush=True,
-                        )
+            for item in notifiable_signals(scan_result):
+                print(json.dumps({"event": "paper_signal", **item}, sort_keys=True), flush=True)
+                try:
+                    telegram_result = telegram.send_message(format_signal_message(item))
+                    print(
+                        json.dumps(
+                            {
+                                "event": "telegram_send",
+                                "time_utc": now_iso(),
+                                "ok": telegram_result.get("ok", False),
+                                "skipped": telegram_result.get("skipped", False),
+                                "reason": telegram_result.get("reason"),
+                                "signal_id": item.get("signal_id"),
+                            },
+                            sort_keys=True,
+                        ),
+                        flush=True,
+                    )
+                except Exception as exc:
+                    print(
+                        json.dumps(
+                            {
+                                "event": "telegram_error",
+                                "time_utc": now_iso(),
+                                "error": str(exc),
+                                "signal_id": item.get("signal_id"),
+                            },
+                            sort_keys=True,
+                        ),
+                        flush=True,
+                    )
         except Exception as exc:
             print(
                 json.dumps(

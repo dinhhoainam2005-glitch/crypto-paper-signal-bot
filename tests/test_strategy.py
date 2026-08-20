@@ -1,9 +1,14 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
+from paper_signal_bot.storage import JsonStore
 from paper_signal_bot.strategy import INTERVAL_MS, STRATEGY_ID, candidate_groups, evaluate_latest, prior_zscore
 from paper_signal_bot.telegram import format_heartbeat_message, format_signal_message, format_startup_message
+from paper_signal_bot.web import SignalService
+from paper_signal_bot.worker import notifiable_signals
 
 
 def kline(open_time: int, open_price: float, high: float, low: float, close: float, quote_volume: float, taker_ratio: float) -> list:
@@ -40,6 +45,21 @@ def premium(open_time: int, value: float) -> list:
         "0",
         "0",
     ]
+
+
+class FakeClient:
+    def __init__(self, klines: list[list], premium_klines: list[list]) -> None:
+        self._klines = klines
+        self._premium_klines = premium_klines
+
+    def klines(self, symbol: str, interval: str, limit: int = 220) -> list[list]:
+        return self._klines[-limit:]
+
+    def premium_index_klines(self, symbol: str, interval: str, limit: int = 100) -> list[list]:
+        return self._premium_klines[-limit:]
+
+    def derivatives_state_available(self, symbol: str) -> bool:
+        return True
 
 
 class StrategyTests(unittest.TestCase):
@@ -154,6 +174,56 @@ class StrategyTests(unittest.TestCase):
         self.assertIn("<b>HEARTBEAT | R15C Paper Bot</b>", heartbeat)
         self.assertIn("<b>ETHUSDT 1h</b>", heartbeat)
         self.assertIn("Status: <code>NO_SIGNAL</code>", heartbeat)
+
+    def test_service_dedupes_same_signal_across_scans(self) -> None:
+        rows = []
+        start = 1_700_000_000_000
+        for i in range(30):
+            close = 100.0
+            low = 99.0
+            high = 102.0
+            quote = 1000.0 + i * 10.0
+            taker_ratio = 0.50
+            if i == 29:
+                close = 95.0
+                low = 94.0
+                high = 101.0
+                quote = 2500.0
+                taker_ratio = 0.40
+            rows.append(kline(start + i * INTERVAL_MS["1h"], 100.0, high, low, close, quote, taker_ratio))
+        premium_rows = [premium(start + i * INTERVAL_MS["1h"], 0.0) for i in range(30)]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            service = SignalService()
+            service.client = FakeClient(rows, premium_rows)
+            service.store = JsonStore(Path(tmp) / "paper_state.json")
+            service.groups = {("ETHUSDT", "1h"): candidate_groups()[("ETHUSDT", "1h")]}
+
+            first = service.scan_once()
+            second = service.scan_once()
+
+        self.assertEqual(first["scan"]["new_signal_count"], 1)
+        self.assertEqual(len(first["scan"]["new_signals"]), 1)
+        self.assertEqual(second["scan"]["new_signal_count"], 0)
+        self.assertEqual(second["scan"]["new_signals"], [])
+        self.assertEqual(second["scan"]["groups"][0]["signals"][0]["suppressed_reason"], "DUPLICATE_SIGNAL_ID")
+
+    def test_worker_only_notifies_new_signals(self) -> None:
+        new_signal = {"signal_id": "new-1", "symbol": "ETHUSDT"}
+        scan_result = {
+            "scan": {
+                "new_signals": [new_signal],
+                "groups": [
+                    {
+                        "signals": [
+                            {"signal_id": "old-1", "symbol": "ETHUSDT", "suppressed_reason": "DUPLICATE_SIGNAL_ID"},
+                            {"symbol": "ETHUSDT", "suppressed_reason": "ACTIVE_POSITION"},
+                        ]
+                    }
+                ],
+            }
+        }
+        self.assertEqual(notifiable_signals(scan_result), [new_signal])
 
 
 if __name__ == "__main__":

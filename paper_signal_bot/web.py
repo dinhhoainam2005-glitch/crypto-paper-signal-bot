@@ -26,8 +26,8 @@ class SignalService:
         self.lock = threading.Lock()
         self.groups = candidate_groups()
 
-    def active_assets(self) -> set[str]:
-        state = self.store.load()
+    @staticmethod
+    def active_assets_from_state(state: dict[str, Any]) -> set[str]:
         now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
         active = state.get("active_positions", [])
         return {
@@ -36,11 +36,24 @@ class SignalService:
             if int(item.get("planned_exit_time_ms", 0)) > now_ms
         }
 
+    @staticmethod
+    def existing_signal_ids_from_state(state: dict[str, Any]) -> set[str]:
+        return {
+            str(item.get("signal_id"))
+            for item in state.get("signals", [])
+            if item.get("signal_id")
+        }
+
+    def active_assets(self) -> set[str]:
+        return self.active_assets_from_state(self.store.load())
+
     def scan_once(self) -> dict[str, Any]:
         with self.lock:
             results: list[dict[str, Any]] = []
             signals: list[dict[str, Any]] = []
-            active_assets = self.active_assets()
+            state_before = self.store.load()
+            active_assets = self.active_assets_from_state(state_before)
+            existing_signal_ids = self.existing_signal_ids_from_state(state_before)
             for (symbol, timeframe), _candidates in self.groups.items():
                 try:
                     klines = self.client.klines(symbol, timeframe, limit=220)
@@ -68,9 +81,6 @@ class SignalService:
                     if derivatives_error is not None:
                         result["derivatives_error"] = derivatives_error
                     for signal in result.get("signals", []):
-                        if signal["asset"] in active_assets:
-                            signal["suppressed_reason"] = "ACTIVE_POSITION"
-                            continue
                         signal_id = "{strategy}:{symbol}:{timeframe}:{candidate}:{time}".format(
                             strategy=STRATEGY_ID,
                             symbol=signal["symbol"],
@@ -79,10 +89,17 @@ class SignalService:
                             time=signal["signal_time_ms"],
                         )
                         signal["signal_id"] = signal_id
+                        if signal_id in existing_signal_ids:
+                            signal["suppressed_reason"] = "DUPLICATE_SIGNAL_ID"
+                            continue
+                        if signal["asset"] in active_assets:
+                            signal["suppressed_reason"] = "ACTIVE_POSITION"
+                            continue
                         signal["created_utc"] = now_iso()
                         signal["status"] = "PAPER_OPEN_PLANNED"
                         signals.append(signal)
                         active_assets.add(signal["asset"])
+                        existing_signal_ids.add(signal_id)
                     results.append(result)
                 except Exception as exc:
                     results.append({"symbol": symbol, "timeframe": timeframe, "status": "ERROR", "error": str(exc)})
@@ -92,6 +109,7 @@ class SignalService:
                 "paper_only": True,
                 "scanned_utc": now_iso(),
                 "groups": results,
+                "new_signals": signals,
                 "new_signal_count": len(signals),
             }
             state = self.store.record_scan(scan, signals)
