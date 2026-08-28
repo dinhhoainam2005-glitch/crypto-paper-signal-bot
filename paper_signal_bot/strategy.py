@@ -452,6 +452,7 @@ def evaluate_latest(
             "status": "INSUFFICIENT_HISTORY",
             "closed_bars": len(closed),
             "premium_closed_bars": len(premium_closed),
+            "candidate_count": len(candidates),
             "signals": [],
         }
 
@@ -524,6 +525,7 @@ def evaluate_latest(
         "status": "SIGNAL" if selected else "NO_SIGNAL",
         "closed_bars": len(closed),
         "premium_closed_bars": len(premium_closed),
+        "candidate_count": len(candidates),
         "latest_closed_bar_utc": ms_to_iso(latest["open_time"]),
         "features": {
             "quote_volume_prior_z_20": snapshot.get("quote_volume_prior_z_20"),

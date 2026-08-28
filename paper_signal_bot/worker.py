@@ -34,6 +34,7 @@ def compact_scan(scan_result: dict[str, Any]) -> dict[str, Any]:
                 "status": group.get("status"),
                 "latest_closed_bar_utc": group.get("latest_closed_bar_utc"),
                 "raw_signal_count": group.get("raw_signal_count", 0),
+                "candidate_count": group.get("candidate_count", 0),
                 "quote_volume_prior_z_20": features.get("quote_volume_prior_z_20"),
                 "market_breadth_count": features.get("market_breadth_count"),
                 "market_breadth_assets": features.get("market_breadth_assets"),

@@ -129,6 +129,7 @@ class StrategyTests(unittest.TestCase):
             "risk_fraction": 0.25,
             "candidate": {"candidate_id": "breadth_breakout_BTC", "hold_bars": 12, "family": "breadth_breakout"},
             "features": {
+                "close": 100.0,
                 "market_breadth_count": 3,
                 "market_breadth_assets": 4,
                 "breadth_n": 2,
@@ -141,11 +142,11 @@ class StrategyTests(unittest.TestCase):
             },
         }
         text = format_signal_message(signal)
-        self.assertIn("<b>TRADE | PAPER | R22C</b>", text)
-        self.assertIn("<b>BTCUSDT LONG</b>", text)
-        self.assertIn("Sleeve: <code>4h_LONG_mp4_rf0p25</code>", text)
-        self.assertIn("<b>Router</b>", text)
-        self.assertIn("<b>Status</b>: PAPER ONLY, NOT LIVE", text)
+        self.assertIn("🟢🔺 <b>PAPER LONG — BTCUSDT</b> 🔺🟢", text)
+        self.assertIn("✅ <b>LIVE PAPER SIGNAL</b>", text)
+        self.assertIn("🧩 Sleeve: <code>4h_LONG_mp4_rf0p25</code>", text)
+        self.assertIn("📊 <b>SIGNAL QUALITY</b>", text)
+        self.assertIn("🔒 <b>PAPER ONLY / NO AUTO-TRADE</b>", text)
 
     def test_startup_and_heartbeat_messages(self) -> None:
         startup = format_startup_message(
@@ -153,13 +154,15 @@ class StrategyTests(unittest.TestCase):
             scan_interval_seconds=300,
             heartbeat_interval_seconds=3600,
         )
-        self.assertIn("<b>STARTUP | R22C Paper Bot</b>", startup)
-        self.assertIn("<b>Mode</b>: PAPER ONLY", startup)
+        self.assertIn("💞📡 <b>R22C PAPER BOT STARTUP — MARKET WATCH ACTIVE</b>", startup)
+        self.assertIn("📌 Mode: <b>PAPER SIGNAL ONLY</b>", startup)
         self.assertIn("SOLUSDT 4h", startup)
+        self.assertIn("🔒 <b>SIGNAL ONLY / NO AUTO-TRADE</b>", startup)
 
         heartbeat = format_heartbeat_message(
             {
                 "strategy_id": STRATEGY_ID,
+                "time_utc": "2026-08-20T04:30:00+00:00",
                 "new_signal_count": 0,
                 "active_position_count": 0,
                 "groups": [
@@ -168,6 +171,7 @@ class StrategyTests(unittest.TestCase):
                         "timeframe": "4h",
                         "status": "NO_SIGNAL",
                         "latest_closed_bar_utc": "2026-08-20T00:00:00+00:00",
+                        "candidate_count": 2,
                         "market_breadth_count": 3,
                         "market_breadth_assets": 4,
                         "breadth_n": 2,
@@ -177,9 +181,11 @@ class StrategyTests(unittest.TestCase):
                 ],
             }
         )
-        self.assertIn("<b>HEARTBEAT | R22C Paper Bot</b>", heartbeat)
+        self.assertIn("💞📡 <b>R22C PAPER BOT HEARTBEAT — MARKET WATCH ACTIVE</b>", heartbeat)
         self.assertIn("<b>BTCUSDT 4h</b>", heartbeat)
-        self.assertIn("Breadth: <code>3/4</code> >= <code>2</code>", heartbeat)
+        self.assertIn("• Rules scanned: <b>2</b>", heartbeat)
+        self.assertIn("• Breadth: <code>3/4</code> >= <code>2</code>", heartbeat)
+        self.assertIn("🛡️ <b>SAFETY</b>", heartbeat)
 
     def test_service_dedupes_same_signal_across_scans(self) -> None:
         start = 1_700_000_000_000
