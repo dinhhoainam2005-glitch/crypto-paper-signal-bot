@@ -54,27 +54,51 @@ class SignalService:
             state_before = self.store.load()
             active_assets = self.active_assets_from_state(state_before)
             existing_signal_ids = self.existing_signal_ids_from_state(state_before)
+            klines_cache: dict[tuple[str, str], list[list[Any]]] = {}
+            premium_cache: dict[tuple[str, str], list[list[Any]]] = {}
+            fetch_errors: dict[tuple[str, str], str] = {}
             for (symbol, timeframe), _candidates in self.groups.items():
                 try:
-                    klines = self.client.klines(symbol, timeframe, limit=220)
+                    klines_cache[(symbol, timeframe)] = self.client.klines(symbol, timeframe, limit=220)
                     premium_error = None
-                    derivatives_error = None
                     try:
-                        premium = self.client.premium_index_klines(symbol, timeframe, limit=100)
+                        premium_cache[(symbol, timeframe)] = self.client.premium_index_klines(symbol, timeframe, limit=100)
                     except Exception as exc:
-                        premium = []
                         premium_error = str(exc)
+                        premium_cache[(symbol, timeframe)] = []
+                    if premium_error is not None:
+                        fetch_errors[(symbol, timeframe)] = f"premium: {premium_error}"
+                except Exception as exc:
+                    fetch_errors[(symbol, timeframe)] = str(exc)
+                    self.store.record_error(f"{symbol} {timeframe}: {exc}")
+            for (symbol, timeframe), _candidates in self.groups.items():
+                try:
+                    if (symbol, timeframe) not in klines_cache:
+                        raise RuntimeError(fetch_errors.get((symbol, timeframe), "kline_fetch_failed"))
+                    klines = klines_cache[(symbol, timeframe)]
+                    premium = premium_cache.get((symbol, timeframe), [])
+                    premium_error = None
+                    existing_fetch_error = fetch_errors.get((symbol, timeframe))
+                    if existing_fetch_error and existing_fetch_error.startswith("premium: "):
+                        premium_error = existing_fetch_error.removeprefix("premium: ")
+                    derivatives_error = None
                     try:
                         derivatives_ok = self.client.derivatives_state_available(symbol)
                     except Exception as exc:
                         derivatives_ok = False
                         derivatives_error = str(exc)
+                    market_klines_by_symbol = {
+                        market_symbol: rows
+                        for (market_symbol, market_timeframe), rows in klines_cache.items()
+                        if market_timeframe == timeframe
+                    }
                     result = evaluate_latest(
                         symbol=symbol,
                         timeframe=timeframe,
                         klines=klines,
                         premium_klines=premium,
                         derivatives_state_available=derivatives_ok,
+                        market_klines_by_symbol=market_klines_by_symbol,
                     )
                     if premium_error is not None:
                         result["premium_error"] = premium_error
@@ -168,15 +192,17 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(SERVICE.scan_once())
             return
         if parsed.path == "/spec":
-            from .strategy import CANDIDATES, PREMIUM_Z_MAX, REALIZED_VOL_24_MIN, VOLUME_Z_MIN
+            from .strategy import CANDIDATES, R22C_MARKETS
 
             self.send_json(
                 {
                     "strategy_id": STRATEGY_ID,
                     "paper_only": True,
-                    "premium_close_prior_z_24_max": PREMIUM_Z_MAX,
-                    "quote_volume_prior_z_20_min": VOLUME_Z_MIN,
-                    "realized_vol_24_min": REALIZED_VOL_24_MIN,
+                    "markets": [f"{symbol} {timeframe}" for symbol, timeframe in R22C_MARKETS],
+                    "sleeves": ["4h_LONG_mp4_rf0p25", "4h_SHORT_mp4_rf0p25"],
+                    "entry_model": "NEXT_OPEN",
+                    "risk_fraction": 0.25,
+                    "max_positions_per_sleeve": 4,
                     "full_derivatives_state_available_required": False,
                     "candidates": [candidate.__dict__ for candidate in CANDIDATES],
                 }

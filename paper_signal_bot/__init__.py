@@ -1,4 +1,4 @@
-"""Paper-only signal service for the R15C research candidate."""
+"""Paper-only signal service for the R22C regime-sleeve router."""
 
 __all__ = ["__version__"]
 

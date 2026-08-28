@@ -1,6 +1,6 @@
 # Crypto Paper Signal Bot
 
-Paper-only service for the R15C taker-flow composite volatility-filter research candidate.
+Paper-only service for the R22C 4h regime-sleeve trend router.
 
 ## Status
 
@@ -13,11 +13,12 @@ This repository is research-to-paper only.
 
 Current paper strategy:
 
-- Strategy: `R15C_TAKER_FLOW_COMPOSITE_VOL_FILTER_PAPER_OBSERVATION`
-- Markets: `BTCUSDT 4h`, `ETHUSDT 1h`, `ETHUSDT 4h`
-- Directions: BTC 4h LONG, ETH 4h LONG, ETH 1h SHORT
-- Gate: taker-flow breakout with `quote_volume_prior_z_20 >= 1.659151276879225` and `realized_vol_24 >= 0.005616411766518594`
-- Research status: near-pass stress candidate, approved for paper observation only
+- Strategy: `R22C_REGIME_SLEEVE_4H_PAPER_OBSERVATION`
+- Markets: `BTCUSDT 4h`, `ETHUSDT 4h`, `SOLUSDT 4h`, `BNBUSDT 4h`
+- Directions: 4h LONG and 4h SHORT regime sleeves
+- Gate: breadth-confirmed momentum/breakout/EMA-stack triggers across BTC, ETH, SOL, and BNB
+- Risk model: paper signal risk fraction `0.25` per position, max 4 positions per sleeve
+- Research status: R22B regime-sleeve pass, approved for paper observation only
 
 ## Local Run
 

@@ -5,14 +5,14 @@ import unittest
 from pathlib import Path
 
 from paper_signal_bot.storage import JsonStore
-from paper_signal_bot.strategy import INTERVAL_MS, STRATEGY_ID, candidate_groups, evaluate_latest, prior_zscore
+from paper_signal_bot.strategy import INTERVAL_MS, STRATEGY_ID, R22C_MARKETS, candidate_groups, evaluate_latest, prior_zscore
 from paper_signal_bot.telegram import format_heartbeat_message, format_signal_message, format_startup_message
 from paper_signal_bot.web import SignalService
 from paper_signal_bot.worker import notifiable_signals
 
 
-def kline(open_time: int, open_price: float, high: float, low: float, close: float, quote_volume: float, taker_ratio: float) -> list:
-    interval = INTERVAL_MS["1h"]
+def kline(open_time: int, open_price: float, high: float, low: float, close: float, quote_volume: float, interval: str = "4h") -> list:
+    interval_ms = INTERVAL_MS[interval]
     return [
         open_time,
         str(open_price),
@@ -20,17 +20,17 @@ def kline(open_time: int, open_price: float, high: float, low: float, close: flo
         str(low),
         str(close),
         "100",
-        open_time + interval - 1,
+        open_time + interval_ms - 1,
         str(quote_volume),
         100,
-        str(100 * taker_ratio),
-        str(quote_volume * taker_ratio),
+        "50",
+        str(quote_volume * 0.5),
         "0",
     ]
 
 
-def premium(open_time: int, value: float) -> list:
-    interval = INTERVAL_MS["1h"]
+def premium(open_time: int, value: float, interval: str = "4h") -> list:
+    interval_ms = INTERVAL_MS[interval]
     return [
         open_time,
         str(value),
@@ -38,7 +38,7 @@ def premium(open_time: int, value: float) -> list:
         str(value),
         str(value),
         "0",
-        open_time + interval - 1,
+        open_time + interval_ms - 1,
         "0",
         0,
         "0",
@@ -47,16 +47,28 @@ def premium(open_time: int, value: float) -> list:
     ]
 
 
+def trending_rows(start: int, *, base: float, step: float, interval: str = "4h") -> list[list]:
+    rows = []
+    interval_ms = INTERVAL_MS[interval]
+    for i in range(80):
+        close = base + i * step
+        open_price = close - step * 0.25
+        rows.append(kline(start + i * interval_ms, open_price, close + 0.5, close - 1.0, close, 1000.0, interval))
+    next_open = start + 80 * interval_ms
+    rows.append(kline(next_open, base + 80 * step, base + 80 * step + 0.25, base + 80 * step - 0.25, base + 80 * step, 1000.0, interval))
+    return rows
+
+
 class FakeClient:
-    def __init__(self, klines: list[list], premium_klines: list[list]) -> None:
-        self._klines = klines
-        self._premium_klines = premium_klines
+    def __init__(self, rows_by_symbol: dict[str, list[list]], premium_rows: list[list]) -> None:
+        self._rows_by_symbol = rows_by_symbol
+        self._premium_rows = premium_rows
 
     def klines(self, symbol: str, interval: str, limit: int = 220) -> list[list]:
-        return self._klines[-limit:]
+        return self._rows_by_symbol[symbol][-limit:]
 
     def premium_index_klines(self, symbol: str, interval: str, limit: int = 100) -> list[list]:
-        return self._premium_klines[-limit:]
+        return self._premium_rows[-limit:]
 
     def derivatives_state_available(self, symbol: str) -> bool:
         return True
@@ -69,78 +81,70 @@ class StrategyTests(unittest.TestCase):
         values = [10.0 + i for i in range(20)] + [50.0]
         self.assertGreater(prior_zscore(values, 20, 20), 1.0)
 
-    def test_short_signal_requires_volume_and_volatility_filter(self) -> None:
-        rows = []
+    def test_breadth_router_emits_btc_4h_long_signal(self) -> None:
         start = 1_700_000_000_000
-        for i in range(30):
-            close = 100.0
-            low = 99.0
-            high = 102.0
-            quote = 1000.0 + i * 10.0
-            taker_ratio = 0.50
-            if i == 29:
-                close = 95.0
-                low = 94.0
-                high = 101.0
-                quote = 2500.0
-                taker_ratio = 0.40
-            rows.append(kline(start + i * INTERVAL_MS["1h"], 100.0, high, low, close, quote, taker_ratio))
-        premium_rows = [premium(start + i * INTERVAL_MS["1h"], 0.0) for i in range(30)]
-        now_ms = start + 31 * INTERVAL_MS["1h"]
+        rows_by_symbol = {
+            "BTCUSDT": trending_rows(start, base=100.0, step=1.0),
+            "ETHUSDT": trending_rows(start, base=200.0, step=1.5),
+            "SOLUSDT": trending_rows(start, base=50.0, step=0.6),
+            "BNBUSDT": trending_rows(start, base=300.0, step=1.2),
+        }
+        premium_rows = [premium(start + i * INTERVAL_MS["4h"], 0.0) for i in range(81)]
+        now_ms = start + 80 * INTERVAL_MS["4h"] + 1
 
         result = evaluate_latest(
-            symbol="ETHUSDT",
-            timeframe="1h",
-            klines=rows,
+            symbol="BTCUSDT",
+            timeframe="4h",
+            klines=rows_by_symbol["BTCUSDT"],
             premium_klines=premium_rows,
             derivatives_state_available=True,
+            market_klines_by_symbol=rows_by_symbol,
             now_ms=now_ms,
         )
+
         self.assertEqual(result["status"], "SIGNAL")
-        self.assertEqual(result["signals"][0]["side"], "SHORT")
+        signal = result["signals"][0]
+        self.assertEqual(signal["strategy_id"], STRATEGY_ID)
+        self.assertEqual(signal["side"], "LONG")
+        self.assertEqual(signal["sleeve_id"], "4h_LONG_mp4_rf0p25")
+        self.assertEqual(signal["risk_fraction"], 0.25)
+        self.assertGreaterEqual(signal["features"]["market_breadth_count"], 2)
 
-        low_volume_rows = [row.copy() for row in rows]
-        low_volume_rows[-1][7] = "1050"
-        blocked = evaluate_latest(
-            symbol="ETHUSDT",
-            timeframe="1h",
-            klines=low_volume_rows,
-            premium_klines=premium_rows,
-            derivatives_state_available=True,
-            now_ms=now_ms,
-        )
-        self.assertEqual(blocked["status"], "NO_SIGNAL")
-
-    def test_candidate_groups_include_r15c_markets(self) -> None:
+    def test_candidate_groups_include_r22c_markets(self) -> None:
         groups = candidate_groups()
-        self.assertIn(("BTCUSDT", "4h"), groups)
-        self.assertIn(("ETHUSDT", "1h"), groups)
-        self.assertIn(("ETHUSDT", "4h"), groups)
+        for market in R22C_MARKETS:
+            self.assertIn(market, groups)
+        self.assertNotIn(("ETHUSDT", "1h"), groups)
 
-    def test_telegram_message_is_plain_paper_signal(self) -> None:
+    def test_telegram_message_is_r22c_paper_signal(self) -> None:
         signal = {
-            "symbol": "ETHUSDT",
-            "side": "SHORT",
-            "timeframe": "1h",
+            "symbol": "BTCUSDT",
+            "side": "LONG",
+            "timeframe": "4h",
             "strategy_id": STRATEGY_ID,
-            "signal_time_utc": "2026-08-11T13:00:00+00:00",
-            "entry_time_utc": "2026-08-11T14:00:00+00:00",
+            "signal_time_utc": "2026-08-20T00:00:00+00:00",
+            "entry_time_utc": "2026-08-20T04:00:00+00:00",
             "entry_price": None,
-            "candidate": {"candidate_id": "abc", "hold_bars": 12},
+            "sleeve_id": "4h_LONG_mp4_rf0p25",
+            "risk_fraction": 0.25,
+            "candidate": {"candidate_id": "breadth_breakout_BTC", "hold_bars": 12, "family": "breadth_breakout"},
             "features": {
-                "premium_close_prior_z_24": 0.12,
-                "full_derivatives_state_available": True,
-                "mkt_taker_quote_imbalance_derived": -0.22,
-                "quote_volume_prior_z_20": 1.5,
-                "volume_z_min": 1.6,
-                "realized_vol_24": 0.0123,
-                "realized_vol_24_min": 0.0056,
+                "market_breadth_count": 3,
+                "market_breadth_assets": 4,
+                "breadth_n": 2,
+                "breadth_min": 0.008,
+                "market_directional_mean": 0.021,
+                "quote_volume_prior_z_20": 0.5,
+                "volz_min": -0.75,
+                "sleeve_id": "4h_LONG_mp4_rf0p25",
+                "risk_fraction": 0.25,
             },
         }
         text = format_signal_message(signal)
-        self.assertIn("<b>TRADE | PAPER | R15C</b>", text)
-        self.assertIn("<b>ETHUSDT SHORT</b>", text)
-        self.assertIn("Realized vol24", text)
+        self.assertIn("<b>TRADE | PAPER | R22C</b>", text)
+        self.assertIn("<b>BTCUSDT LONG</b>", text)
+        self.assertIn("Sleeve: <code>4h_LONG_mp4_rf0p25</code>", text)
+        self.assertIn("<b>Router</b>", text)
         self.assertIn("<b>Status</b>: PAPER ONLY, NOT LIVE", text)
 
     def test_startup_and_heartbeat_messages(self) -> None:
@@ -149,9 +153,9 @@ class StrategyTests(unittest.TestCase):
             scan_interval_seconds=300,
             heartbeat_interval_seconds=3600,
         )
-        self.assertIn("<b>STARTUP | R15C Paper Bot</b>", startup)
+        self.assertIn("<b>STARTUP | R22C Paper Bot</b>", startup)
         self.assertIn("<b>Mode</b>: PAPER ONLY", startup)
-        self.assertIn("ETHUSDT 4h", startup)
+        self.assertIn("SOLUSDT 4h", startup)
 
         heartbeat = format_heartbeat_message(
             {
@@ -160,63 +164,55 @@ class StrategyTests(unittest.TestCase):
                 "active_position_count": 0,
                 "groups": [
                     {
-                        "symbol": "ETHUSDT",
-                        "timeframe": "1h",
+                        "symbol": "BTCUSDT",
+                        "timeframe": "4h",
                         "status": "NO_SIGNAL",
-                        "latest_closed_bar_utc": "2026-08-11T13:00:00+00:00",
-                        "premium_close_prior_z_24": 0.12,
-                        "quote_volume_prior_z_20": 1.5,
-                        "realized_vol_24": 0.0123,
+                        "latest_closed_bar_utc": "2026-08-20T00:00:00+00:00",
+                        "market_breadth_count": 3,
+                        "market_breadth_assets": 4,
+                        "breadth_n": 2,
+                        "market_directional_mean": 0.021,
+                        "quote_volume_prior_z_20": 0.5,
                     }
                 ],
             }
         )
-        self.assertIn("<b>HEARTBEAT | R15C Paper Bot</b>", heartbeat)
-        self.assertIn("<b>ETHUSDT 1h</b>", heartbeat)
-        self.assertIn("Status: <code>NO_SIGNAL</code>", heartbeat)
+        self.assertIn("<b>HEARTBEAT | R22C Paper Bot</b>", heartbeat)
+        self.assertIn("<b>BTCUSDT 4h</b>", heartbeat)
+        self.assertIn("Breadth: <code>3/4</code> >= <code>2</code>", heartbeat)
 
     def test_service_dedupes_same_signal_across_scans(self) -> None:
-        rows = []
         start = 1_700_000_000_000
-        for i in range(30):
-            close = 100.0
-            low = 99.0
-            high = 102.0
-            quote = 1000.0 + i * 10.0
-            taker_ratio = 0.50
-            if i == 29:
-                close = 95.0
-                low = 94.0
-                high = 101.0
-                quote = 2500.0
-                taker_ratio = 0.40
-            rows.append(kline(start + i * INTERVAL_MS["1h"], 100.0, high, low, close, quote, taker_ratio))
-        premium_rows = [premium(start + i * INTERVAL_MS["1h"], 0.0) for i in range(30)]
+        rows_by_symbol = {
+            "BTCUSDT": trending_rows(start, base=100.0, step=1.0),
+            "ETHUSDT": trending_rows(start, base=200.0, step=1.5),
+            "SOLUSDT": trending_rows(start, base=50.0, step=0.6),
+            "BNBUSDT": trending_rows(start, base=300.0, step=1.2),
+        }
+        premium_rows = [premium(start + i * INTERVAL_MS["4h"], 0.0) for i in range(81)]
 
         with tempfile.TemporaryDirectory() as tmp:
             service = SignalService()
-            service.client = FakeClient(rows, premium_rows)
+            service.client = FakeClient(rows_by_symbol, premium_rows)
             service.store = JsonStore(Path(tmp) / "paper_state.json")
-            service.groups = {("ETHUSDT", "1h"): candidate_groups()[("ETHUSDT", "1h")]}
 
             first = service.scan_once()
             second = service.scan_once()
 
-        self.assertEqual(first["scan"]["new_signal_count"], 1)
-        self.assertEqual(len(first["scan"]["new_signals"]), 1)
+        self.assertGreaterEqual(first["scan"]["new_signal_count"], 1)
+        self.assertEqual(len(first["scan"]["new_signals"]), first["scan"]["new_signal_count"])
         self.assertEqual(second["scan"]["new_signal_count"], 0)
         self.assertEqual(second["scan"]["new_signals"], [])
-        self.assertEqual(second["scan"]["groups"][0]["signals"][0]["suppressed_reason"], "DUPLICATE_SIGNAL_ID")
 
     def test_worker_only_notifies_new_signals(self) -> None:
-        new_signal = {"signal_id": "new-1", "symbol": "ETHUSDT"}
+        new_signal = {"signal_id": "new-1", "symbol": "BTCUSDT"}
         scan_result = {
             "scan": {
                 "new_signals": [new_signal],
                 "groups": [
                     {
                         "signals": [
-                            {"signal_id": "old-1", "symbol": "ETHUSDT", "suppressed_reason": "DUPLICATE_SIGNAL_ID"},
+                            {"signal_id": "old-1", "symbol": "BTCUSDT", "suppressed_reason": "DUPLICATE_SIGNAL_ID"},
                             {"symbol": "ETHUSDT", "suppressed_reason": "ACTIVE_POSITION"},
                         ]
                     }
