@@ -13,10 +13,75 @@ from urllib.parse import parse_qs, urlparse
 from .binance_client import BinanceFuturesClient
 from .storage import JsonStore
 from .strategy import STRATEGY_ID, candidate_groups, evaluate_latest
+from .telegram import (
+    TelegramSender,
+    env_enabled,
+    format_heartbeat_message,
+    format_signal_message,
+    format_startup_message,
+    telegram_configured,
+)
 
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+NOTIFY_LOCK = threading.Lock()
+LAST_HEARTBEAT_SENT = 0.0
+
+
+def compact_scan(scan_result: dict[str, Any]) -> dict[str, Any]:
+    scan = scan_result.get("scan", {})
+    groups = []
+    for group in scan.get("groups", []):
+        features = group.get("features", {})
+        groups.append(
+            {
+                "symbol": group.get("symbol"),
+                "timeframe": group.get("timeframe"),
+                "status": group.get("status"),
+                "latest_closed_bar_utc": group.get("latest_closed_bar_utc"),
+                "raw_signal_count": group.get("raw_signal_count", 0),
+                "candidate_count": group.get("candidate_count", 0),
+                "quote_volume_prior_z_20": features.get("quote_volume_prior_z_20"),
+                "market_breadth_count": features.get("market_breadth_count"),
+                "market_breadth_assets": features.get("market_breadth_assets"),
+                "market_directional_mean": features.get("market_directional_mean"),
+                "breadth_n": features.get("breadth_n"),
+                "breadth_min": features.get("breadth_min"),
+                "premium_close_prior_z_24": features.get("premium_close_prior_z_24"),
+                "realized_vol_24": features.get("realized_vol_24"),
+                "full_derivatives_state_available": features.get("full_derivatives_state_available"),
+                "premium_error": group.get("premium_error"),
+                "derivatives_error": group.get("derivatives_error"),
+                "error": group.get("error"),
+            }
+        )
+    state = scan_result.get("state", {})
+    return {
+        "event": "paper_scan",
+        "time_utc": now_iso(),
+        "strategy_id": STRATEGY_ID,
+        "paper_only": True,
+        "new_signal_count": scan.get("new_signal_count", 0),
+        "active_position_count": len(state.get("active_positions", [])),
+        "groups": groups,
+    }
+
+
+def notifiable_signals(scan_result: dict[str, Any]) -> list[dict[str, Any]]:
+    scan = scan_result.get("scan", {})
+    new_signals = scan.get("new_signals")
+    if isinstance(new_signals, list):
+        return new_signals
+
+    items: list[dict[str, Any]] = []
+    for group in scan.get("groups", []):
+        for item in group.get("signals", []):
+            if item.get("signal_id") and not item.get("suppressed_reason"):
+                items.append(item)
+    return items
 
 
 class SignalService:
@@ -189,7 +254,8 @@ class Handler(BaseHTTPRequestHandler):
             if token and provided != token:
                 self.send_json({"error": "scan token required"}, HTTPStatus.UNAUTHORIZED)
                 return
-            self.send_json(SERVICE.scan_once())
+            heartbeat_interval = int(os.getenv("HEARTBEAT_INTERVAL_SECONDS", "3600"))
+            self.send_json(scan_notify_once(heartbeat_interval_seconds=heartbeat_interval))
             return
         if parsed.path == "/spec":
             from .strategy import CANDIDATES, R22C_MARKETS
@@ -220,10 +286,109 @@ class Handler(BaseHTTPRequestHandler):
         print("%s - %s" % (self.log_date_time_string(), format % args), flush=True)
 
 
-def background_loop(interval_seconds: int) -> None:
+def send_startup_message(scan_interval_seconds: int, heartbeat_interval_seconds: int) -> None:
+    if not env_enabled("TELEGRAM_STARTUP_ENABLED"):
+        return
+    telegram = TelegramSender()
+    try:
+        startup_result = telegram.send_message(
+            format_startup_message(
+                strategy_id=STRATEGY_ID,
+                scan_interval_seconds=scan_interval_seconds,
+                heartbeat_interval_seconds=heartbeat_interval_seconds,
+            )
+        )
+        print(
+            json.dumps(
+                {
+                    "event": "telegram_startup",
+                    "time_utc": now_iso(),
+                    "ok": startup_result.get("ok", False),
+                    "skipped": startup_result.get("skipped", False),
+                    "reason": startup_result.get("reason"),
+                },
+                sort_keys=True,
+            ),
+            flush=True,
+        )
+    except Exception as exc:
+        print(
+            json.dumps({"event": "telegram_startup_error", "time_utc": now_iso(), "error": str(exc)}, sort_keys=True),
+            flush=True,
+        )
+
+
+def scan_notify_once(*, heartbeat_interval_seconds: int, force_heartbeat: bool = False) -> dict[str, Any]:
+    global LAST_HEARTBEAT_SENT
+    telegram = TelegramSender()
+    heartbeat_enabled = env_enabled("TELEGRAM_HEARTBEAT_ENABLED")
+    scan_result = SERVICE.scan_once()
+    scan_summary = compact_scan(scan_result)
+    print(json.dumps(scan_summary, sort_keys=True), flush=True)
+
+    with NOTIFY_LOCK:
+        heartbeat_due = heartbeat_enabled and (force_heartbeat or time.monotonic() - LAST_HEARTBEAT_SENT >= heartbeat_interval_seconds)
+        if heartbeat_due:
+            try:
+                heartbeat_result = telegram.send_message(format_heartbeat_message(scan_summary))
+                LAST_HEARTBEAT_SENT = time.monotonic()
+                print(
+                    json.dumps(
+                        {
+                            "event": "telegram_heartbeat",
+                            "time_utc": now_iso(),
+                            "ok": heartbeat_result.get("ok", False),
+                            "skipped": heartbeat_result.get("skipped", False),
+                            "reason": heartbeat_result.get("reason"),
+                        },
+                        sort_keys=True,
+                    ),
+                    flush=True,
+                )
+            except Exception as exc:
+                print(
+                    json.dumps({"event": "telegram_heartbeat_error", "time_utc": now_iso(), "error": str(exc)}, sort_keys=True),
+                    flush=True,
+                )
+
+    for item in notifiable_signals(scan_result):
+        print(json.dumps({"event": "paper_signal", **item}, sort_keys=True), flush=True)
+        try:
+            telegram_result = telegram.send_message(format_signal_message(item))
+            print(
+                json.dumps(
+                    {
+                        "event": "telegram_send",
+                        "time_utc": now_iso(),
+                        "ok": telegram_result.get("ok", False),
+                        "skipped": telegram_result.get("skipped", False),
+                        "reason": telegram_result.get("reason"),
+                        "signal_id": item.get("signal_id"),
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+        except Exception as exc:
+            print(
+                json.dumps(
+                    {
+                        "event": "telegram_error",
+                        "time_utc": now_iso(),
+                        "error": str(exc),
+                        "signal_id": item.get("signal_id"),
+                    },
+                    sort_keys=True,
+                ),
+                flush=True,
+            )
+    return scan_result
+
+
+def background_loop(interval_seconds: int, heartbeat_interval_seconds: int) -> None:
     while True:
         try:
-            SERVICE.scan_once()
+            scan_notify_once(heartbeat_interval_seconds=heartbeat_interval_seconds)
         except Exception as exc:
             SERVICE.store.record_error(f"background scan: {exc}")
         time.sleep(interval_seconds)
@@ -233,9 +398,29 @@ def main() -> None:
     port = int(os.getenv("PORT", "10000"))
     host = os.getenv("HOST", "0.0.0.0")
     interval = int(os.getenv("SCAN_INTERVAL_SECONDS", "300"))
+    heartbeat_interval = int(os.getenv("HEARTBEAT_INTERVAL_SECONDS", "3600"))
     disable_background = os.getenv("DISABLE_BACKGROUND_SCAN", "").lower() in {"1", "true", "yes"}
+    print(
+        json.dumps(
+            {
+                "event": "web_service_started",
+                "time_utc": now_iso(),
+                "strategy_id": STRATEGY_ID,
+                "paper_only": True,
+                "scan_interval_seconds": interval,
+                "heartbeat_interval_seconds": heartbeat_interval,
+                "background_scan_enabled": not disable_background,
+                "telegram_configured": telegram_configured(),
+                "telegram_startup_enabled": env_enabled("TELEGRAM_STARTUP_ENABLED"),
+                "telegram_heartbeat_enabled": env_enabled("TELEGRAM_HEARTBEAT_ENABLED"),
+            },
+            sort_keys=True,
+        ),
+        flush=True,
+    )
+    send_startup_message(interval, heartbeat_interval)
     if not disable_background:
-        thread = threading.Thread(target=background_loop, args=(interval,), daemon=True)
+        thread = threading.Thread(target=background_loop, args=(interval, heartbeat_interval), daemon=True)
         thread.start()
     server = ThreadingHTTPServer((host, port), Handler)
     print(f"Listening on http://{host}:{port} strategy={STRATEGY_ID} paper_only=true", flush=True)

@@ -1,10 +1,10 @@
 services:
-  - type: worker
+  - type: web
     name: crypto-paper-signal-bot
     runtime: python
-    plan: starter
+    plan: free
     buildCommand: python -m compileall paper_signal_bot
-    startCommand: python -m paper_signal_bot.worker
+    startCommand: python -m paper_signal_bot.web
     envVars:
       - key: PAPER_ONLY
         value: "true"

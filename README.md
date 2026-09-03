@@ -1,6 +1,6 @@
 # Crypto Paper Signal Bot
 
-Paper-only service for the R22C 4h regime-sleeve trend router.
+Paper-only web service for the R22C 4h regime-sleeve trend router.
 
 ## Status
 
@@ -9,7 +9,7 @@ This repository is research-to-paper only.
 - Live trading: disabled
 - Exchange order placement: not implemented
 - Telegram alerts: paper notifications only
-- Render target: Python background worker
+- Render target: Python web service with an internal paper-scan loop
 
 Current paper strategy:
 
@@ -34,7 +34,7 @@ Open:
 - `http://127.0.0.1:10000/status`
 - `http://127.0.0.1:10000/scan`
 
-## Render Background Worker
+## Render Web Service
 
 The service is configured through `render.yaml`.
 
@@ -47,10 +47,19 @@ python -m compileall paper_signal_bot
 Start command:
 
 ```bash
-python -m paper_signal_bot.worker
+python -m paper_signal_bot.web
 ```
 
-Background workers do not expose a public URL. Check Render Logs for `worker_started`, `paper_scan`, and `paper_signal` events.
+The web service exposes a public URL and still runs the paper scanner in a background thread while the Render instance is awake.
+
+Useful routes:
+
+- `/health`: lightweight uptime endpoint
+- `/status`: latest stored bot state
+- `/signals/latest`: recent paper signals
+- `/scan`: manually trigger a scan and Telegram notification pipeline, optionally protected by `SCAN_TOKEN`
+
+Render Free web services can spin down when idle. Use an external uptime ping against `/health` if you want the scanner to keep running continuously on the Free plan, or ping `/scan?token=<your scan token>` if you want the external ping itself to trigger each scan.
 
 Required environment variables:
 
@@ -63,6 +72,7 @@ TELEGRAM_ENABLED=true
 TELEGRAM_STARTUP_ENABLED=true
 TELEGRAM_HEARTBEAT_ENABLED=true
 HEARTBEAT_INTERVAL_SECONDS=3600
+SCAN_TOKEN=<optional token for /scan>
 TELEGRAM_BOT_TOKEN=<your bot token from BotFather>
 TELEGRAM_CHAT_ID=<your Telegram chat id>
 ```
@@ -72,4 +82,11 @@ For local worker smoke test:
 ```powershell
 $env:WORKER_RUN_ONCE="1"
 python -m paper_signal_bot.worker
+```
+
+For local web-service smoke test:
+
+```powershell
+$env:DISABLE_BACKGROUND_SCAN="1"
+python -m paper_signal_bot.web
 ```
