@@ -59,7 +59,7 @@ Useful routes:
 - `/signals/latest`: recent paper signals
 - `/scan`: manually trigger a scan and Telegram notification pipeline, optionally protected by `SCAN_TOKEN`
 
-Render Free web services can spin down when idle. Use an external uptime ping against `/health` if you want the scanner to keep running continuously on the Free plan, or ping `/scan?token=<your scan token>` if you want the external ping itself to trigger each scan.
+Render Free web services can spin down when idle. This repo includes `.github/workflows/render-keepalive.yml`, which pings `/health` every 5 minutes so the web service can keep running its internal scanner like a worker. You can also ping `/scan?token=<your scan token>` externally if you want the ping itself to trigger each scan.
 
 Required environment variables:
 
