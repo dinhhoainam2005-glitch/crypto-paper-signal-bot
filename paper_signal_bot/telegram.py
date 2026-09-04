@@ -83,6 +83,8 @@ def short_text(value: Any, limit: int = 160) -> str:
 
 def bot_label(strategy_id: str | None = None) -> str:
     text = strategy_id or ""
+    if text.startswith("R24A"):
+        return "R24A Strict Quality Bot"
     if text.startswith("R23B"):
         return "R23B Quality Bot"
     if text.startswith("R22C"):
@@ -96,6 +98,8 @@ def bot_label(strategy_id: str | None = None) -> str:
 
 def engine_label(strategy_id: str) -> str:
     text = strategy_id or ""
+    if text.startswith("R24A"):
+        return "R24A-STRICT-QUALITY-R15C-BNB"
     if text.startswith("R23B"):
         return "R23B-QUALITY-R15C-R22A"
     if text.startswith("R22C"):
@@ -149,7 +153,6 @@ def format_startup_message(*, strategy_id: str, scan_interval_seconds: int, hear
             "📊 <b>SIGNAL MARKETS</b>",
             "• BTCUSDT 1h, 4h",
             "• ETHUSDT 1h, 4h",
-            "• SOLUSDT 4h",
             "• BNBUSDT 4h",
             "• Context breadth: BTC/ETH/SOL/BNB 1h + 4h",
             "",

@@ -1,4 +1,4 @@
-"""Paper-only signal service for the R23B quality-mode router."""
+"""Paper-only signal service for the R24A strict-quality router."""
 
 __all__ = ["__version__"]
 

@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .binance_client import BinanceFuturesClient
 from .storage import JsonStore
-from .strategy import PORTFOLIO_ID, PORTFOLIO_METRICS, PORTFOLIO_NAME, R23B_CONTEXT_MARKETS, STRATEGY_ID, candidate_groups, evaluate_latest
+from .strategy import PORTFOLIO_ID, PORTFOLIO_METRICS, PORTFOLIO_NAME, R24A_CONTEXT_MARKETS, STRATEGY_ID, candidate_groups, evaluate_latest
 from .telegram import (
     TelegramSender,
     env_enabled,
@@ -95,7 +95,7 @@ class SignalService:
         self.store = JsonStore()
         self.lock = threading.Lock()
         self.groups = candidate_groups()
-        self.context_markets = R23B_CONTEXT_MARKETS
+        self.context_markets = R24A_CONTEXT_MARKETS
 
     @staticmethod
     def active_assets_from_state(state: dict[str, Any]) -> set[str]:
@@ -264,7 +264,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(scan_notify_once(heartbeat_interval_seconds=heartbeat_interval))
             return
         if parsed.path == "/spec":
-            from .strategy import CANDIDATES, R23B_CONTEXT_MARKETS, R23B_SCAN_MARKETS
+            from .strategy import CANDIDATES, R24A_CONTEXT_MARKETS, R24A_SCAN_MARKETS
 
             self.send_json(
                 {
@@ -272,9 +272,9 @@ class Handler(BaseHTTPRequestHandler):
                     "portfolio_id": PORTFOLIO_ID,
                     "portfolio_name": PORTFOLIO_NAME,
                     "paper_only": True,
-                    "scan_markets": [f"{symbol} {timeframe}" for symbol, timeframe in R23B_SCAN_MARKETS],
-                    "context_markets": [f"{symbol} {timeframe}" for symbol, timeframe in R23B_CONTEXT_MARKETS],
-                    "sleeves": ["r23b_quality_long", "r23b_quality_pullback", "r15c_taker_flow_quality"],
+                    "scan_markets": [f"{symbol} {timeframe}" for symbol, timeframe in R24A_SCAN_MARKETS],
+                    "context_markets": [f"{symbol} {timeframe}" for symbol, timeframe in R24A_CONTEXT_MARKETS],
+                    "sleeves": ["r24a_bnb_quality_long", "r24a_btc_1h_pullback_observation", "r24a_taker_flow_quality"],
                     "entry_model": "NEXT_OPEN",
                     "risk_fraction": 0.25,
                     "max_positions_per_sleeve": 4,

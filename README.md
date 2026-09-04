@@ -1,6 +1,6 @@
 # Crypto Paper Signal Bot
 
-Paper-only web service for the R23B quality-mode signal router.
+Paper-only web service for the R24A strict-quality signal router.
 
 ## Status
 
@@ -13,12 +13,13 @@ This repository is research-to-paper only.
 
 Current paper strategy:
 
-- Strategy: `R23B_QUALITY_MODE_R15C_R22A_PAPER_OBSERVATION`
-- Signal markets: `BTCUSDT 1h/4h`, `ETHUSDT 1h/4h`, `SOLUSDT 4h`, `BNBUSDT 4h`
-- Directions: quality-filtered trend/pullback LONG sleeves plus R15C taker-flow quality candidates
-- Gate: breadth-confirmed momentum/pullback/breakout triggers plus strict R15C volume/flow/realized-vol filters
+- Strategy: `R24A_STRICT_QUALITY_R15C_BNB_PAPER_OBSERVATION`
+- Signal markets: `BTCUSDT 1h/4h`, `ETHUSDT 1h/4h`, `BNBUSDT 4h`
+- Context markets: BTC/ETH/SOL/BNB on 1h and 4h for market breadth checks
+- Directions: quality-filtered BNB trend LONG, BTC 1h pullback observation, and R15C BTC/ETH taker-flow quality candidates
+- Gate: breadth-confirmed momentum/pullback triggers plus strict R15C volume/flow/realized-vol filters
 - Risk model: paper signal risk fraction `0.25` per position, max 4 positions per sleeve
-- Research status: R23A quality-gate improvement selected for paper observation only
+- Research status: R24A quality-first tightening selected for paper observation only
 
 ## Local Run
 
