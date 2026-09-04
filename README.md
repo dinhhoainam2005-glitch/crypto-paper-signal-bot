@@ -1,6 +1,6 @@
 # Crypto Paper Signal Bot
 
-Paper-only web service for the R22C 4h regime-sleeve trend router.
+Paper-only web service for the R23B quality-mode signal router.
 
 ## Status
 
@@ -13,12 +13,12 @@ This repository is research-to-paper only.
 
 Current paper strategy:
 
-- Strategy: `R22C_REGIME_SLEEVE_4H_PAPER_OBSERVATION`
-- Markets: `BTCUSDT 4h`, `ETHUSDT 4h`, `SOLUSDT 4h`, `BNBUSDT 4h`
-- Directions: 4h LONG and 4h SHORT regime sleeves
-- Gate: breadth-confirmed momentum/breakout/EMA-stack triggers across BTC, ETH, SOL, and BNB
+- Strategy: `R23B_QUALITY_MODE_R15C_R22A_PAPER_OBSERVATION`
+- Signal markets: `BTCUSDT 1h/4h`, `ETHUSDT 1h/4h`, `SOLUSDT 4h`, `BNBUSDT 4h`
+- Directions: quality-filtered trend/pullback LONG sleeves plus R15C taker-flow quality candidates
+- Gate: breadth-confirmed momentum/pullback/breakout triggers plus strict R15C volume/flow/realized-vol filters
 - Risk model: paper signal risk fraction `0.25` per position, max 4 positions per sleeve
-- Research status: R22B regime-sleeve pass, approved for paper observation only
+- Research status: R23A quality-gate improvement selected for paper observation only
 
 ## Local Run
 

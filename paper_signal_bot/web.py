@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .binance_client import BinanceFuturesClient
 from .storage import JsonStore
-from .strategy import STRATEGY_ID, candidate_groups, evaluate_latest
+from .strategy import PORTFOLIO_ID, PORTFOLIO_METRICS, PORTFOLIO_NAME, R23B_CONTEXT_MARKETS, STRATEGY_ID, candidate_groups, evaluate_latest
 from .telegram import (
     TelegramSender,
     env_enabled,
@@ -90,6 +90,7 @@ class SignalService:
         self.store = JsonStore()
         self.lock = threading.Lock()
         self.groups = candidate_groups()
+        self.context_markets = R23B_CONTEXT_MARKETS
 
     @staticmethod
     def active_assets_from_state(state: dict[str, Any]) -> set[str]:
@@ -122,7 +123,7 @@ class SignalService:
             klines_cache: dict[tuple[str, str], list[list[Any]]] = {}
             premium_cache: dict[tuple[str, str], list[list[Any]]] = {}
             fetch_errors: dict[tuple[str, str], str] = {}
-            for (symbol, timeframe), _candidates in self.groups.items():
+            for symbol, timeframe in self.context_markets:
                 try:
                     klines_cache[(symbol, timeframe)] = self.client.klines(symbol, timeframe, limit=220)
                     premium_error = None
@@ -258,17 +259,21 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(scan_notify_once(heartbeat_interval_seconds=heartbeat_interval))
             return
         if parsed.path == "/spec":
-            from .strategy import CANDIDATES, R22C_MARKETS
+            from .strategy import CANDIDATES, R23B_CONTEXT_MARKETS, R23B_SCAN_MARKETS
 
             self.send_json(
                 {
                     "strategy_id": STRATEGY_ID,
+                    "portfolio_id": PORTFOLIO_ID,
+                    "portfolio_name": PORTFOLIO_NAME,
                     "paper_only": True,
-                    "markets": [f"{symbol} {timeframe}" for symbol, timeframe in R22C_MARKETS],
-                    "sleeves": ["4h_LONG_mp4_rf0p25", "4h_SHORT_mp4_rf0p25"],
+                    "scan_markets": [f"{symbol} {timeframe}" for symbol, timeframe in R23B_SCAN_MARKETS],
+                    "context_markets": [f"{symbol} {timeframe}" for symbol, timeframe in R23B_CONTEXT_MARKETS],
+                    "sleeves": ["r23b_quality_long", "r23b_quality_pullback", "r15c_taker_flow_quality"],
                     "entry_model": "NEXT_OPEN",
                     "risk_fraction": 0.25,
                     "max_positions_per_sleeve": 4,
+                    "report_metrics": PORTFOLIO_METRICS,
                     "full_derivatives_state_available_required": False,
                     "candidates": [candidate.__dict__ for candidate in CANDIDATES],
                 }

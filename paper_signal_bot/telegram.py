@@ -75,6 +75,8 @@ def fmt_float(value: Any, digits: int = 4) -> str:
 
 def bot_label(strategy_id: str | None = None) -> str:
     text = strategy_id or ""
+    if text.startswith("R23B"):
+        return "R23B Quality Bot"
     if text.startswith("R22C"):
         return "R22C Paper Bot"
     if text.startswith("R15C"):
@@ -86,6 +88,8 @@ def bot_label(strategy_id: str | None = None) -> str:
 
 def engine_label(strategy_id: str) -> str:
     text = strategy_id or ""
+    if text.startswith("R23B"):
+        return "R23B-QUALITY-R15C-R22A"
     if text.startswith("R22C"):
         return "R22C-REGIME-SLEEVE"
     return text or "PAPER-SIGNAL"
@@ -132,13 +136,14 @@ def format_startup_message(*, strategy_id: str, scan_interval_seconds: int, hear
             "",
             "🧬 Engine: <code>{engine}</code>".format(engine=esc(engine_label(strategy_id))),
             "📌 Mode: <b>PAPER SIGNAL ONLY</b>",
-            "⏱️ TF: <b>4h</b>",
+            "⏱️ TF: <b>1h + 4h</b>",
             "",
-            "📊 <b>MARKETS</b>",
-            "• BTCUSDT 4h",
-            "• ETHUSDT 4h",
+            "📊 <b>SIGNAL MARKETS</b>",
+            "• BTCUSDT 1h, 4h",
+            "• ETHUSDT 1h, 4h",
             "• SOLUSDT 4h",
             "• BNBUSDT 4h",
+            "• Context breadth: BTC/ETH/SOL/BNB 1h + 4h",
             "",
             "🛡️ <b>SAFETY</b>",
             "• SIGNAL_SEND: <b>ON</b>",
@@ -160,6 +165,8 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
     groups = scan_summary.get("groups", [])
     strategy_id = scan_summary.get("strategy_id", "")
     scanned_utc = scan_summary.get("time_utc")
+    timeframes = sorted({str(group.get("timeframe", "")).strip() for group in groups if group.get("timeframe")})
+    timeframe_label = " + ".join(timeframes) if timeframes else "n/a"
     latest_candle = ""
     latest_dt = None
     for group in groups:
@@ -177,7 +184,7 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
         "",
         "🧬 Engine: <code>{engine}</code>".format(engine=esc(engine_label(strategy_id))),
         "📌 Mode: <b>PAPER SIGNAL ONLY</b>",
-        "⏱️ TF: <b>4h</b>",
+        "⏱️ TF: <b>{tf}</b>".format(tf=esc(timeframe_label)),
         "",
         "📊 <b>LAST SCAN</b>",
         "• State: <b>{state}</b>".format(state=esc(state)),
@@ -236,6 +243,65 @@ def format_signal_message(signal: dict[str, Any]) -> str:
     strategy_id = signal.get("strategy_id", "")
     side = str(signal.get("side", "")).upper()
     side_icon = "📈" if side == "LONG" else "📉" if side == "SHORT" else "📡"
+    quality_lines = [
+        "• Candidate: <code>{candidate_id}</code>".format(
+            candidate_id=esc(candidate.get("candidate_id", "")),
+        ),
+        "• Score: <code>{score}</code>".format(
+            score=fmt_float(candidate.get("selection_score"), 4),
+        ),
+        "• Trigger: <code>{family}</code>".format(
+            family=esc(candidate.get("family", features.get("family", ""))),
+        ),
+    ]
+    if features.get("market_breadth_count") is not None:
+        quality_lines.extend(
+            [
+                "• Breadth: <code>{count}/{assets}</code> >= <code>{need}</code>".format(
+                    count=fmt_float(features.get("market_breadth_count"), 0),
+                    assets=fmt_float(features.get("market_breadth_assets"), 0),
+                    need=fmt_float(features.get("breadth_n"), 0),
+                ),
+                "• Breadth min: <code>{minv}</code> | Market mean: <code>{mean}</code>".format(
+                    minv=fmt_float(features.get("breadth_min"), 4),
+                    mean=fmt_float(features.get("market_directional_mean"), 4),
+                ),
+            ]
+        )
+    if features.get("flow_thr") is not None:
+        quality_lines.append(
+            "• Taker flow: <code>{flow}</code> >= <code>{thr}</code>".format(
+                flow=fmt_float(features.get("flow_directional"), 4),
+                thr=fmt_float(features.get("flow_thr"), 4),
+            )
+        )
+    if features.get("pullback_min") is not None:
+        quality_lines.append(
+            "• Pullback/reclaim: <code>{pullback}</code> >= <code>{need}</code> | Reclaim: <code>{reclaim}</code>".format(
+                pullback=fmt_float(features.get("pullback"), 4),
+                need=fmt_float(features.get("pullback_min"), 4),
+                reclaim=esc(features.get("reclaim")),
+            )
+        )
+    if features.get("volz_min") is not None:
+        quality_lines.append(
+            "• Volume z20: <code>{volume_z}</code> >= <code>{min_z}</code>".format(
+                volume_z=fmt_float(features.get("quote_volume_prior_z_20"), 2),
+                min_z=fmt_float(features.get("volz_min"), 2),
+            )
+        )
+    if features.get("quality_realized_vol_24_min") is not None:
+        quality_lines.append(
+            "• Realized vol24: <code>{rv}</code> >= <code>{need}</code>".format(
+                rv=fmt_float(features.get("realized_vol_24"), 4),
+                need=fmt_float(features.get("quality_realized_vol_24_min"), 4),
+            )
+        )
+    quality_lines.append(
+        "• Signal time: <b>{signal_time}</b>".format(
+            signal_time=esc(compact_utc(signal.get("signal_time_utc", ""))),
+        )
+    )
     return "\n".join(
         [
             side_banner(signal.get("symbol", ""), side),
@@ -265,31 +331,7 @@ def format_signal_message(signal: dict[str, Any]) -> str:
             ),
             "",
             "📊 <b>SIGNAL QUALITY</b>",
-            "• Candidate: <code>{candidate_id}</code>".format(
-                candidate_id=esc(candidate.get("candidate_id", "")),
-            ),
-            "• Score: <code>{score}</code>".format(
-                score=fmt_float(candidate.get("selection_score"), 4),
-            ),
-            "• Breadth: <code>{count}/{assets}</code> >= <code>{need}</code>".format(
-                count=fmt_float(features.get("market_breadth_count"), 0),
-                assets=fmt_float(features.get("market_breadth_assets"), 0),
-                need=fmt_float(features.get("breadth_n"), 0),
-            ),
-            "• Breadth min: <code>{minv}</code> | Market mean: <code>{mean}</code>".format(
-                minv=fmt_float(features.get("breadth_min"), 4),
-                mean=fmt_float(features.get("market_directional_mean"), 4),
-            ),
-            "• Trigger: <code>{family}</code>".format(
-                family=esc(candidate.get("family", features.get("family", ""))),
-            ),
-            "• Volume z20: <code>{volume_z}</code> >= <code>{min_z}</code>".format(
-                volume_z=fmt_float(features.get("quote_volume_prior_z_20"), 2),
-                min_z=fmt_float(features.get("volz_min"), 2),
-            ),
-            "• Signal time: <b>{signal_time}</b>".format(
-                signal_time=esc(compact_utc(signal.get("signal_time_utc", ""))),
-            ),
+            *quality_lines,
             "",
             "🔒 <b>PAPER ONLY / NO AUTO-TRADE</b>",
             clock_line(signal.get("signal_time_utc")),

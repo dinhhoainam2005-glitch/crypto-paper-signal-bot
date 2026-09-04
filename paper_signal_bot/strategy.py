@@ -7,7 +7,23 @@ from statistics import fmean, pstdev
 from typing import Any
 
 
-STRATEGY_ID = "R22C_REGIME_SLEEVE_4H_PAPER_OBSERVATION"
+STRATEGY_ID = "R23B_QUALITY_MODE_R15C_R22A_PAPER_OBSERVATION"
+PORTFOLIO_ID = "quality_expand_size_17_mp4_rf0p25_2092c4ac40"
+PORTFOLIO_NAME = "R23B_QUALITY_MODE"
+PORTFOLIO_METRICS = {
+    "frozen_trades_per_week": 5.580589254766031,
+    "frozen_profit_factor": 1.6301594151558279,
+    "frozen_sharpe": 2.8967160803678764,
+    "frozen_win_rate": 0.558695652173913,
+    "frozen_max_drawdown_pct": -9.132704618939592,
+    "validation_trades_per_week": 6.770491803278689,
+    "validation_profit_factor": 1.6836047380401198,
+    "validation_sharpe": 3.610803908352226,
+    "validation_win_rate": 0.5480225988700564,
+    "recent_trades_per_week": 4.6073245577930555,
+    "recent_profit_factor": 8.683072308710456,
+    "recent_win_rate": 0.7777777777777778,
+}
 INTERVAL_MS = {
     "1h": 60 * 60 * 1000,
     "4h": 4 * 60 * 60 * 1000,
@@ -19,7 +35,6 @@ SYMBOL_BY_ASSET = {
     "BNB": "BNBUSDT",
 }
 ASSET_BY_SYMBOL = {symbol: asset for asset, symbol in SYMBOL_BY_ASSET.items()}
-R22C_MARKETS = tuple((symbol, "4h") for symbol in SYMBOL_BY_ASSET.values())
 MIN_HISTORY_BARS = 72
 
 
@@ -43,6 +58,7 @@ def candidate(
     *,
     candidate_id: str,
     asset: str,
+    timeframe: str = "4h",
     direction: str,
     family: str,
     hold_bars: int,
@@ -54,7 +70,7 @@ def candidate(
         candidate_id=candidate_id,
         symbol=SYMBOL_BY_ASSET[asset],
         asset=asset,
-        timeframe="4h",
+        timeframe=timeframe,
         direction=direction,
         family=family,
         hold_bars=hold_bars,
@@ -68,14 +84,24 @@ def candidate(
 
 CANDIDATES: tuple[Candidate, ...] = (
     candidate(
-        candidate_id="breadth_breakout_BTC_4h_LONG_h12_2e275a7ccb",
-        asset="BTC",
+        candidate_id="breadth_momentum_BNB_4h_LONG_h12_16f12c5aba",
+        asset="BNB",
         direction="LONG",
-        family="breadth_breakout",
+        family="breadth_momentum",
         hold_bars=12,
-        params={"breadth_min": 0.008, "breadth_n": 2, "buffer": 0.0015, "lb": 6, "market_min": 0.0026666666666666666, "regime_lb": 6, "volz_min": -0.75},
-        selection_score=108.039256538311,
-        sleeve_id="4h_LONG_mp4_rf0p25",
+        params={"breadth_min": 0.008, "breadth_n": 3, "leader_required": False, "market_min": 0.0026666666666666666, "regime_lb": 6, "ret1_min": 0.003, "signal_lb": 3, "signal_min": 0.004, "volz_min": -0.75},
+        selection_score=96.39932140563236,
+        sleeve_id="r23b_quality_long",
+    ),
+    candidate(
+        candidate_id="breadth_momentum_BNB_4h_LONG_h12_ad92d46d33",
+        asset="BNB",
+        direction="LONG",
+        family="breadth_momentum",
+        hold_bars=12,
+        params={"breadth_min": 0.008, "breadth_n": 3, "leader_required": False, "market_min": 0.0026666666666666666, "regime_lb": 6, "ret1_min": 0.003, "signal_lb": 3, "signal_min": 0.004, "volz_min": 0.0},
+        selection_score=96.39932140563236,
+        sleeve_id="r23b_quality_long",
     ),
     candidate(
         candidate_id="breadth_momentum_ETH_4h_LONG_h12_0023b0aa49",
@@ -84,70 +110,252 @@ CANDIDATES: tuple[Candidate, ...] = (
         family="breadth_momentum",
         hold_bars=12,
         params={"breadth_min": 0.008, "breadth_n": 3, "leader_required": False, "market_min": 0.0026666666666666666, "regime_lb": 6, "ret1_min": 0.0, "signal_lb": 3, "signal_min": 0.004, "volz_min": -0.75},
-        selection_score=109.56770392918962,
-        sleeve_id="4h_LONG_mp4_rf0p25",
+        selection_score=95.72881141514557,
+        sleeve_id="r23b_quality_long",
     ),
     candidate(
-        candidate_id="breadth_breakout_SOL_4h_LONG_h12_2cf0accdcc",
-        asset="SOL",
-        direction="LONG",
-        family="breadth_breakout",
-        hold_bars=12,
-        params={"breadth_min": 0.018, "breadth_n": 3, "buffer": 0.0, "lb": 6, "market_min": 0.005999999999999999, "regime_lb": 6, "volz_min": -0.75},
-        selection_score=101.64559277014436,
-        sleeve_id="4h_LONG_mp4_rf0p25",
-    ),
-    candidate(
-        candidate_id="breadth_momentum_BNB_4h_LONG_h12_16f12c5aba",
-        asset="BNB",
+        candidate_id="breadth_momentum_ETH_4h_LONG_h12_c9d65c1d56",
+        asset="ETH",
         direction="LONG",
         family="breadth_momentum",
         hold_bars=12,
         params={"breadth_min": 0.008, "breadth_n": 3, "leader_required": False, "market_min": 0.0026666666666666666, "regime_lb": 6, "ret1_min": 0.003, "signal_lb": 3, "signal_min": 0.004, "volz_min": -0.75},
-        selection_score=111.95003078299469,
-        sleeve_id="4h_LONG_mp4_rf0p25",
+        selection_score=95.3596976814344,
+        sleeve_id="r23b_quality_long",
     ),
     candidate(
-        candidate_id="breadth_breakout_BTC_4h_SHORT_h6_23bbde5b98",
+        candidate_id="breadth_momentum_BTC_4h_LONG_h12_c0613ac7dc",
         asset="BTC",
-        direction="SHORT",
-        family="breadth_breakout",
-        hold_bars=6,
-        params={"breadth_min": 0.008, "breadth_n": 2, "buffer": 0.0015, "lb": 24, "market_min": 0.0026666666666666666, "regime_lb": 24, "volz_min": -0.75},
-        selection_score=61.0,
-        sleeve_id="4h_SHORT_mp4_rf0p25",
-    ),
-    candidate(
-        candidate_id="breadth_momentum_ETH_4h_SHORT_h12_94d12c6fac",
-        asset="ETH",
-        direction="SHORT",
+        direction="LONG",
         family="breadth_momentum",
         hold_bars=12,
-        params={"breadth_min": 0.018, "breadth_n": 2, "leader_required": False, "market_min": 0.005999999999999999, "regime_lb": 12, "ret1_min": 0.003, "signal_lb": 6, "signal_min": 0.018, "volz_min": 0.0},
-        selection_score=39.36631786310146,
-        sleeve_id="4h_SHORT_mp4_rf0p25",
+        params={"breadth_min": 0.008, "breadth_n": 2, "leader_required": False, "market_min": 0.0026666666666666666, "regime_lb": 6, "ret1_min": 0.003, "signal_lb": 3, "signal_min": 0.008, "volz_min": -0.75},
+        selection_score=93.30012232382694,
+        sleeve_id="r23b_quality_long",
     ),
     candidate(
-        candidate_id="breadth_ema_stack_SOL_4h_SHORT_h12_25effefd8e",
-        asset="SOL",
-        direction="SHORT",
-        family="breadth_ema_stack",
-        hold_bars=12,
-        params={"breadth_min": 0.018, "breadth_n": 2, "leader_required": False, "market_min": 0.005999999999999999, "regime_lb": 12, "slope_min": 0.003},
-        selection_score=62.34603737930004,
-        sleeve_id="4h_SHORT_mp4_rf0p25",
-    ),
-    candidate(
-        candidate_id="breadth_breakout_BNB_4h_SHORT_h6_d617960bc9",
+        candidate_id="breadth_breakout_BNB_4h_LONG_h12_45899086a2",
         asset="BNB",
-        direction="SHORT",
+        direction="LONG",
         family="breadth_breakout",
+        hold_bars=12,
+        params={"breadth_min": 0.008, "breadth_n": 2, "buffer": 0.0, "lb": 6, "market_min": 0.0026666666666666666, "regime_lb": 6, "volz_min": -0.75},
+        selection_score=93.18093096228357,
+        sleeve_id="r23b_quality_long",
+    ),
+    candidate(
+        candidate_id="breadth_pullback_reclaim_BTC_1h_LONG_h12_c933124895",
+        asset="BTC",
+        timeframe="1h",
+        direction="LONG",
+        family="breadth_pullback_reclaim",
+        hold_bars=12,
+        params={"asset_regime_min": 0.006, "breadth_min": 0.006, "breadth_n": 2, "market_min": 0.002, "pullback_min": 0.018, "regime_lb": 24, "signal_lb": 6},
+        selection_score=78.8001425145812,
+        sleeve_id="r23b_quality_pullback",
+    ),
+    candidate(
+        candidate_id="breadth_pullback_reclaim_BTC_1h_LONG_h12_5ca3f75ebb",
+        asset="BTC",
+        timeframe="1h",
+        direction="LONG",
+        family="breadth_pullback_reclaim",
+        hold_bars=12,
+        params={"asset_regime_min": 0.012, "breadth_min": 0.012, "breadth_n": 2, "market_min": 0.004, "pullback_min": 0.018, "regime_lb": 24, "signal_lb": 6},
+        selection_score=78.8001425145812,
+        sleeve_id="r23b_quality_pullback",
+    ),
+    candidate(
+        candidate_id="breadth_pullback_reclaim_BTC_1h_LONG_h12_7f16f9c924",
+        asset="BTC",
+        timeframe="1h",
+        direction="LONG",
+        family="breadth_pullback_reclaim",
+        hold_bars=12,
+        params={"asset_regime_min": 0.006, "breadth_min": 0.006, "breadth_n": 3, "market_min": 0.002, "pullback_min": 0.018, "regime_lb": 24, "signal_lb": 6},
+        selection_score=77.56937328381196,
+        sleeve_id="r23b_quality_pullback",
+    ),
+    candidate(
+        candidate_id="breadth_pullback_reclaim_BTC_1h_LONG_h12_b9ff12b4cf",
+        asset="BTC",
+        timeframe="1h",
+        direction="LONG",
+        family="breadth_pullback_reclaim",
+        hold_bars=12,
+        params={"asset_regime_min": 0.012, "breadth_min": 0.012, "breadth_n": 3, "market_min": 0.004, "pullback_min": 0.018, "regime_lb": 24, "signal_lb": 6},
+        selection_score=77.56937328381196,
+        sleeve_id="r23b_quality_pullback",
+    ),
+    candidate(
+        candidate_id="breadth_pullback_reclaim_SOL_4h_LONG_h6_58330d2582",
+        asset="SOL",
+        direction="LONG",
+        family="breadth_pullback_reclaim",
         hold_bars=6,
-        params={"breadth_min": 0.018, "breadth_n": 3, "buffer": 0.0, "lb": 24, "market_min": 0.005999999999999999, "regime_lb": 24, "volz_min": -0.75},
-        selection_score=30.786670056883686,
-        sleeve_id="4h_SHORT_mp4_rf0p25",
+        params={"asset_regime_min": 0.008, "breadth_min": 0.008, "breadth_n": 3, "market_min": 0.0026666666666666666, "pullback_min": 0.025, "regime_lb": 12, "signal_lb": 6},
+        selection_score=56.5051698798565,
+        sleeve_id="r23b_quality_pullback",
+    ),
+    candidate(
+        candidate_id="breadth_pullback_reclaim_SOL_4h_LONG_h12_4481e3a8c2",
+        asset="SOL",
+        direction="LONG",
+        family="breadth_pullback_reclaim",
+        hold_bars=12,
+        params={"asset_regime_min": 0.008, "breadth_min": 0.008, "breadth_n": 2, "market_min": 0.0026666666666666666, "pullback_min": 0.055, "regime_lb": 12, "signal_lb": 6},
+        selection_score=55.62637193629375,
+        sleeve_id="r23b_quality_pullback",
+    ),
+    candidate(
+        candidate_id="breadth_pullback_reclaim_SOL_4h_LONG_h12_636660ae3b",
+        asset="SOL",
+        direction="LONG",
+        family="breadth_pullback_reclaim",
+        hold_bars=12,
+        params={"asset_regime_min": 0.018, "breadth_min": 0.018, "breadth_n": 2, "market_min": 0.005999999999999999, "pullback_min": 0.055, "regime_lb": 12, "signal_lb": 6},
+        selection_score=55.62637193629375,
+        sleeve_id="r23b_quality_pullback",
+    ),
+    candidate(
+        candidate_id="breadth_pullback_reclaim_SOL_4h_LONG_h12_7a535fa2dd",
+        asset="SOL",
+        direction="LONG",
+        family="breadth_pullback_reclaim",
+        hold_bars=12,
+        params={"asset_regime_min": 0.008, "breadth_min": 0.008, "breadth_n": 3, "market_min": 0.0026666666666666666, "pullback_min": 0.055, "regime_lb": 12, "signal_lb": 6},
+        selection_score=54.95970526962708,
+        sleeve_id="r23b_quality_pullback",
+    ),
+    candidate(
+        candidate_id="breadth_pullback_reclaim_SOL_4h_LONG_h12_1123546e4a",
+        asset="SOL",
+        direction="LONG",
+        family="breadth_pullback_reclaim",
+        hold_bars=12,
+        params={"asset_regime_min": 0.018, "breadth_min": 0.018, "breadth_n": 3, "market_min": 0.005999999999999999, "pullback_min": 0.055, "regime_lb": 12, "signal_lb": 6},
+        selection_score=54.95970526962708,
+        sleeve_id="r23b_quality_pullback",
+    ),
+    candidate(
+        candidate_id="breadth_pullback_reclaim_SOL_4h_LONG_h6_9b4b50c243",
+        asset="SOL",
+        direction="LONG",
+        family="breadth_pullback_reclaim",
+        hold_bars=6,
+        params={"asset_regime_min": 0.018, "breadth_min": 0.018, "breadth_n": 3, "market_min": 0.005999999999999999, "pullback_min": 0.025, "regime_lb": 12, "signal_lb": 6},
+        selection_score=54.89772669878655,
+        sleeve_id="r23b_quality_pullback",
+    ),
+    candidate(
+        candidate_id="r15c_ETH_4h_LONG_lb12_h3_b0p001_vz1p0_f0p05",
+        asset="ETH",
+        direction="LONG",
+        family="taker_flow_breakout",
+        hold_bars=3,
+        params={"buffer": 0.001, "flow_thr": 0.05, "lb": 12, "quality_realized_vol_24_min": 0.005616411766518594, "quality_volz_min": 1.659151276879225, "volz_min": 1.0},
+        selection_score=160.0,
+        sleeve_id="r15c_taker_flow_quality",
+    ),
+    candidate(
+        candidate_id="r15c_ETH_4h_LONG_lb12_h3_b0p0_vz1p0_f0p05",
+        asset="ETH",
+        direction="LONG",
+        family="taker_flow_breakout",
+        hold_bars=3,
+        params={"buffer": 0.0, "flow_thr": 0.05, "lb": 12, "quality_realized_vol_24_min": 0.005616411766518594, "quality_volz_min": 1.659151276879225, "volz_min": 1.0},
+        selection_score=159.5,
+        sleeve_id="r15c_taker_flow_quality",
+    ),
+    candidate(
+        candidate_id="r15c_ETH_4h_LONG_lb6_h3_b0p001_vz1p0_f0p05",
+        asset="ETH",
+        direction="LONG",
+        family="taker_flow_breakout",
+        hold_bars=3,
+        params={"buffer": 0.001, "flow_thr": 0.05, "lb": 6, "quality_realized_vol_24_min": 0.005616411766518594, "quality_volz_min": 1.659151276879225, "volz_min": 1.0},
+        selection_score=159.0,
+        sleeve_id="r15c_taker_flow_quality",
+    ),
+    candidate(
+        candidate_id="r15c_ETH_4h_LONG_lb6_h3_b0p0_vz1p0_f0p05",
+        asset="ETH",
+        direction="LONG",
+        family="taker_flow_breakout",
+        hold_bars=3,
+        params={"buffer": 0.0, "flow_thr": 0.05, "lb": 6, "quality_realized_vol_24_min": 0.005616411766518594, "quality_volz_min": 1.659151276879225, "volz_min": 1.0},
+        selection_score=158.5,
+        sleeve_id="r15c_taker_flow_quality",
+    ),
+    candidate(
+        candidate_id="r15c_ETH_1h_SHORT_lb24_h12_b0p0_vz1p0_f0p15",
+        asset="ETH",
+        timeframe="1h",
+        direction="SHORT",
+        family="taker_flow_breakout",
+        hold_bars=12,
+        params={"buffer": 0.0, "flow_thr": 0.15, "lb": 24, "quality_realized_vol_24_min": 0.005616411766518594, "quality_volz_min": 1.659151276879225, "volz_min": 1.0},
+        selection_score=158.0,
+        sleeve_id="r15c_taker_flow_quality",
+    ),
+    candidate(
+        candidate_id="r15c_ETH_1h_SHORT_lb24_h12_b0p0_vz0p5_f0p15",
+        asset="ETH",
+        timeframe="1h",
+        direction="SHORT",
+        family="taker_flow_breakout",
+        hold_bars=12,
+        params={"buffer": 0.0, "flow_thr": 0.15, "lb": 24, "quality_realized_vol_24_min": 0.005616411766518594, "quality_volz_min": 1.659151276879225, "volz_min": 0.5},
+        selection_score=157.5,
+        sleeve_id="r15c_taker_flow_quality",
+    ),
+    candidate(
+        candidate_id="r15c_ETH_1h_SHORT_lb24_h12_b0p001_vz1p0_f0p15",
+        asset="ETH",
+        timeframe="1h",
+        direction="SHORT",
+        family="taker_flow_breakout",
+        hold_bars=12,
+        params={"buffer": 0.001, "flow_thr": 0.15, "lb": 24, "quality_realized_vol_24_min": 0.005616411766518594, "quality_volz_min": 1.659151276879225, "volz_min": 1.0},
+        selection_score=157.0,
+        sleeve_id="r15c_taker_flow_quality",
+    ),
+    candidate(
+        candidate_id="r15c_BTC_4h_LONG_lb6_h3_b0p001_vz1p0_f0p05",
+        asset="BTC",
+        direction="LONG",
+        family="taker_flow_breakout",
+        hold_bars=3,
+        params={"buffer": 0.001, "flow_thr": 0.05, "lb": 6, "quality_realized_vol_24_min": 0.005616411766518594, "quality_volz_min": 1.659151276879225, "volz_min": 1.0},
+        selection_score=156.5,
+        sleeve_id="r15c_taker_flow_quality",
+    ),
+    candidate(
+        candidate_id="r15c_ETH_1h_SHORT_lb24_h4_b0p0_vz0p5_f0p15",
+        asset="ETH",
+        timeframe="1h",
+        direction="SHORT",
+        family="taker_flow_breakout",
+        hold_bars=4,
+        params={"buffer": 0.0, "flow_thr": 0.15, "lb": 24, "quality_realized_vol_24_min": 0.005616411766518594, "quality_volz_min": 1.659151276879225, "volz_min": 0.5},
+        selection_score=156.0,
+        sleeve_id="r15c_taker_flow_quality",
+    ),
+    candidate(
+        candidate_id="r15c_BTC_4h_LONG_lb6_h3_b0p0_vz1p0_f0p05",
+        asset="BTC",
+        direction="LONG",
+        family="taker_flow_breakout",
+        hold_bars=3,
+        params={"buffer": 0.0, "flow_thr": 0.05, "lb": 6, "quality_realized_vol_24_min": 0.005616411766518594, "quality_volz_min": 1.659151276879225, "volz_min": 1.0},
+        selection_score=155.5,
+        sleeve_id="r15c_taker_flow_quality",
     ),
 )
+
+R23B_SCAN_MARKETS = tuple(dict.fromkeys((item.symbol, item.timeframe) for item in CANDIDATES))
+R23B_CONTEXT_MARKETS = tuple((symbol, timeframe) for timeframe in ("1h", "4h") for symbol in SYMBOL_BY_ASSET.values())
+R22C_MARKETS = R23B_SCAN_MARKETS
 
 
 def utc_now_ms() -> int:
@@ -324,35 +532,58 @@ def trigger_candidate(
     closes = [row["close"] for row in closed]
     quote_volumes = [row["quote_volume"] for row in closed]
     params = candidate_item.params
-    regime_lb = int(params["regime_lb"])
-    breadth_min = float(params["breadth_min"])
-    market = market_breadth(
-        market_klines_by_symbol=market_klines_by_symbol,
-        timeframe=candidate_item.timeframe,
-        open_time=latest["open_time"],
-        now_ms=now_ms,
-        direction=candidate_item.direction,
-        regime_lb=regime_lb,
-        breadth_min=breadth_min,
-    )
     volz = prior_zscore(quote_volumes, index, 20)
     ret1 = directional(closes[index] / closes[index - 1] - 1.0, candidate_item.direction) if index >= 1 and closes[index - 1] > 0.0 else 0.0
-    market_ok = (
-        market["market_breadth_count"] >= int(params["breadth_n"])
-        and market["market_directional_mean"] >= float(params["market_min"])
-    )
+    realized_vol_24 = realized_volatility(closes, index, 24, 12)
+    taker_buy_quote = safe_float(latest.get("taker_buy_quote_volume"))
+    quote_volume = safe_float(latest.get("quote_volume"))
+    taker_buy_quote_ratio = taker_buy_quote / quote_volume if quote_volume > 0.0 else 0.0
+    quote_imbalance = taker_buy_quote_ratio * 2.0 - 1.0
+    regime_lb = int(params.get("regime_lb", 0))
+    breadth_min = float(params.get("breadth_min", 0.0))
+    has_breadth_gate = all(key in params for key in ("breadth_min", "breadth_n", "market_min", "regime_lb"))
+    if has_breadth_gate:
+        market = market_breadth(
+            market_klines_by_symbol=market_klines_by_symbol,
+            timeframe=candidate_item.timeframe,
+            open_time=latest["open_time"],
+            now_ms=now_ms,
+            direction=candidate_item.direction,
+            regime_lb=regime_lb,
+            breadth_min=breadth_min,
+        )
+        market_ok = (
+            market["market_breadth_count"] >= int(params["breadth_n"])
+            and market["market_directional_mean"] >= float(params["market_min"])
+        )
+        if bool(params.get("leader_required", False)):
+            leader_value = market.get("market_asset_trends", {}).get("BTC")
+            market_ok = market_ok and leader_value is not None and leader_value >= breadth_min
+    else:
+        market = {
+            "market_breadth_count": None,
+            "market_breadth_assets": None,
+            "market_directional_mean": None,
+            "market_asset_trends": {},
+        }
+        market_ok = True
     features: dict[str, Any] = {
         **market,
         "close": latest["close"],
         "quote_volume_prior_z_20": volz,
+        "quote_imbalance": quote_imbalance,
+        "taker_buy_quote_ratio": taker_buy_quote_ratio,
         "ret_1_directional": ret1,
-        "breadth_min": breadth_min,
-        "breadth_n": int(params["breadth_n"]),
-        "market_min": float(params["market_min"]),
-        "regime_lb": regime_lb,
+        "realized_vol_24": realized_vol_24,
+        "breadth_min": breadth_min if has_breadth_gate else None,
+        "breadth_n": int(params["breadth_n"]) if has_breadth_gate else None,
+        "market_min": float(params["market_min"]) if has_breadth_gate else None,
+        "regime_lb": regime_lb if regime_lb else None,
         "risk_fraction": candidate_item.risk_fraction,
         "max_positions": candidate_item.max_positions,
         "sleeve_id": candidate_item.sleeve_id,
+        "portfolio_id": PORTFOLIO_ID,
+        "portfolio_name": PORTFOLIO_NAME,
     }
     if not market_ok:
         return False, features
@@ -378,6 +609,44 @@ def trigger_candidate(
         )
         return trigger, features
 
+    if candidate_item.family == "breadth_pullback_reclaim":
+        signal_lb = int(params["signal_lb"])
+        levels = prior_high_low(closed, index, signal_lb)
+        ema_mid = ema(closes, 12)
+        asset_trend_raw = trend(closes, index, regime_lb)
+        asset_trend = directional(asset_trend_raw or 0.0, candidate_item.direction)
+        if levels is None or index < 12:
+            return False, features
+        prior_high, prior_low = levels
+        if candidate_item.direction == "LONG":
+            distance_from_high = latest["close"] / prior_high - 1.0 if prior_high > 0.0 else 0.0
+            pullback = -distance_from_high
+            reclaim = latest["close"] > ema_mid[index] and ret1 > 0.0
+        else:
+            distance_from_low = latest["close"] / prior_low - 1.0 if prior_low > 0.0 else 0.0
+            pullback = distance_from_low
+            reclaim = latest["close"] < ema_mid[index] and ret1 > 0.0
+        trigger = (
+            asset_trend >= float(params["asset_regime_min"])
+            and pullback >= float(params["pullback_min"])
+            and reclaim
+        )
+        features.update(
+            {
+                "family": candidate_item.family,
+                "asset_regime_directional": asset_trend,
+                "asset_regime_min": float(params["asset_regime_min"]),
+                "signal_lb": signal_lb,
+                "pullback": pullback,
+                "pullback_min": float(params["pullback_min"]),
+                "reclaim": reclaim,
+                "ema_mid_12": ema_mid[index],
+                "prior_high": prior_high,
+                "prior_low": prior_low,
+            }
+        )
+        return trigger, features
+
     if candidate_item.family == "breadth_breakout":
         lb = int(params["lb"])
         levels = prior_high_low(closed, index, lb)
@@ -399,6 +668,44 @@ def trigger_candidate(
                 "breakout_level": breakout_level,
                 "buffer": float(params["buffer"]),
                 "volz_min": float(params["volz_min"]),
+            }
+        )
+        return trigger, features
+
+    if candidate_item.family == "taker_flow_breakout":
+        lb = int(params["lb"])
+        levels = prior_high_low(closed, index, lb)
+        if levels is None:
+            return False, features
+        prior_high, prior_low = levels
+        if candidate_item.direction == "LONG":
+            breakout_level = prior_high * (1.0 + float(params["buffer"]))
+            breakout = latest["close"] > breakout_level
+        else:
+            breakout_level = prior_low * (1.0 - float(params["buffer"]))
+            breakout = latest["close"] < breakout_level
+        flow_directional = directional(quote_imbalance, candidate_item.direction)
+        min_volz = max(float(params["volz_min"]), float(params["quality_volz_min"]))
+        trigger = (
+            breakout
+            and volz >= min_volz
+            and flow_directional >= float(params["flow_thr"])
+            and realized_vol_24 >= float(params["quality_realized_vol_24_min"])
+        )
+        features.update(
+            {
+                "family": candidate_item.family,
+                "breakout_lb": lb,
+                "prior_high": prior_high,
+                "prior_low": prior_low,
+                "breakout": breakout,
+                "breakout_level": breakout_level,
+                "buffer": float(params["buffer"]),
+                "flow_directional": flow_directional,
+                "flow_thr": float(params["flow_thr"]),
+                "volz_min": min_volz,
+                "quality_volz_min": float(params["quality_volz_min"]),
+                "quality_realized_vol_24_min": float(params["quality_realized_vol_24_min"]),
             }
         )
         return trigger, features
