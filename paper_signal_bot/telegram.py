@@ -73,6 +73,14 @@ def fmt_float(value: Any, digits: int = 4) -> str:
         return "n/a"
 
 
+def short_text(value: Any, limit: int = 160) -> str:
+    text = "" if value is None else str(value)
+    text = " ".join(text.split())
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3] + "..."
+
+
 def bot_label(strategy_id: str | None = None) -> str:
     text = strategy_id or ""
     if text.startswith("R23B"):
@@ -199,27 +207,55 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
         "📡 <b>MARKET SNAPSHOT</b>",
     ]
     for group in groups:
+        group_lines = [
+            "",
+            "{icon} <b>{symbol} {tf}</b>".format(
+                icon=status_icon(group.get("status")),
+                symbol=esc(group.get("symbol", "")),
+                tf=esc(group.get("timeframe", "")),
+            ),
+            "• State: <code>{status}</code>".format(status=esc(group.get("status", ""))),
+        ]
+        if group.get("error"):
+            group_lines.append("• Error: <code>{error}</code>".format(error=esc(short_text(group.get("error")))))
+        if group.get("market_breadth_count") is not None:
+            group_lines.extend(
+                [
+                    "• Breadth: <code>{count}/{assets}</code> >= <code>{need}</code>".format(
+                        count=fmt_float(group.get("market_breadth_count"), 0),
+                        assets=fmt_float(group.get("market_breadth_assets"), 0),
+                        need=fmt_float(group.get("breadth_n"), 0),
+                    ),
+                    "• Market mean: <code>{mean}</code>".format(
+                        mean=fmt_float(group.get("market_directional_mean"), 4),
+                    ),
+                ]
+            )
+        elif group.get("flow_thr") is not None:
+            group_lines.append(
+                "• Flow mode: <code>R15C taker-flow quality</code>"
+            )
+            group_lines.append(
+                "• Taker flow: <code>{flow}</code> >= <code>{thr}</code>".format(
+                    flow=fmt_float(group.get("flow_directional"), 4),
+                    thr=fmt_float(group.get("flow_thr"), 4),
+                )
+            )
+            group_lines.append(
+                "• Realized vol24: <code>{rv}</code> >= <code>{need}</code>".format(
+                    rv=fmt_float(group.get("realized_vol_24"), 4),
+                    need=fmt_float(group.get("quality_realized_vol_24_min"), 4),
+                )
+            )
+        else:
+            group_lines.append("• Gate: <code>n/a</code>")
+        group_lines.append(
+            "• Volume z20: <code>{volz}</code>".format(
+                volz=fmt_float(group.get("quote_volume_prior_z_20"), 2),
+            )
+        )
         lines.extend(
-            [
-                "",
-                "{icon} <b>{symbol} {tf}</b>".format(
-                    icon=status_icon(group.get("status")),
-                    symbol=esc(group.get("symbol", "")),
-                    tf=esc(group.get("timeframe", "")),
-                ),
-                "• State: <code>{status}</code>".format(status=esc(group.get("status", ""))),
-                "• Breadth: <code>{count}/{assets}</code> >= <code>{need}</code>".format(
-                    count=fmt_float(group.get("market_breadth_count"), 0),
-                    assets=fmt_float(group.get("market_breadth_assets"), 0),
-                    need=fmt_float(group.get("breadth_n"), 0),
-                ),
-                "• Market mean: <code>{mean}</code>".format(
-                    mean=fmt_float(group.get("market_directional_mean"), 4),
-                ),
-                "• Volume z20: <code>{volz}</code>".format(
-                    volz=fmt_float(group.get("quote_volume_prior_z_20"), 2),
-                ),
-            ]
+            group_lines
         )
     lines.extend(
         [

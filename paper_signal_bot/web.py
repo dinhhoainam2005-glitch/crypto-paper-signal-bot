@@ -52,6 +52,11 @@ def compact_scan(scan_result: dict[str, Any]) -> dict[str, Any]:
                 "breadth_min": features.get("breadth_min"),
                 "premium_close_prior_z_24": features.get("premium_close_prior_z_24"),
                 "realized_vol_24": features.get("realized_vol_24"),
+                "quote_imbalance": features.get("quote_imbalance"),
+                "taker_buy_quote_ratio": features.get("taker_buy_quote_ratio"),
+                "flow_directional": features.get("flow_directional"),
+                "flow_thr": features.get("flow_thr"),
+                "quality_realized_vol_24_min": features.get("quality_realized_vol_24_min"),
                 "full_derivatives_state_available": features.get("full_derivatives_state_available"),
                 "premium_error": group.get("premium_error"),
                 "derivatives_error": group.get("derivatives_error"),
@@ -280,6 +285,18 @@ class Handler(BaseHTTPRequestHandler):
             )
             return
         self.send_json({"error": "not found"}, HTTPStatus.NOT_FOUND)
+
+    def do_HEAD(self) -> None:
+        parsed = urlparse(self.path)
+        if parsed.path in {"/", "/health"}:
+            self.send_response(HTTPStatus.OK)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+        self.send_response(HTTPStatus.NOT_FOUND)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def do_POST(self) -> None:
         if urlparse(self.path).path == "/scan":

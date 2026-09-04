@@ -188,14 +188,33 @@ class StrategyTests(unittest.TestCase):
                         "breadth_n": 2,
                         "market_directional_mean": 0.021,
                         "quote_volume_prior_z_20": 0.5,
+                    },
+                    {
+                        "symbol": "ETHUSDT",
+                        "timeframe": "1h",
+                        "status": "NO_SIGNAL",
+                        "latest_closed_bar_utc": "2026-08-20T04:00:00+00:00",
+                        "candidate_count": 4,
+                        "market_breadth_count": None,
+                        "market_breadth_assets": None,
+                        "breadth_n": None,
+                        "market_directional_mean": None,
+                        "quote_volume_prior_z_20": -0.79,
+                        "flow_directional": 0.08,
+                        "flow_thr": 0.15,
+                        "realized_vol_24": 0.0065,
+                        "quality_realized_vol_24_min": 0.0056,
                     }
                 ],
             }
         )
         self.assertIn("💞📡 <b>R23B QUALITY BOT HEARTBEAT — MARKET WATCH ACTIVE</b>", heartbeat)
         self.assertIn("<b>BTCUSDT 4h</b>", heartbeat)
-        self.assertIn("• Rules scanned: <b>2</b>", heartbeat)
+        self.assertIn("• Rules scanned: <b>6</b>", heartbeat)
         self.assertIn("• Breadth: <code>3/4</code> >= <code>2</code>", heartbeat)
+        self.assertIn("<b>ETHUSDT 1h</b>", heartbeat)
+        self.assertIn("• Flow mode: <code>R15C taker-flow quality</code>", heartbeat)
+        self.assertNotIn("n/a/n/a", heartbeat)
         self.assertIn("🛡️ <b>SAFETY</b>", heartbeat)
 
     def test_service_dedupes_same_signal_across_scans(self) -> None:
