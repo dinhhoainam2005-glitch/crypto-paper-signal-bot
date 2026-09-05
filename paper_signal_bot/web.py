@@ -269,6 +269,11 @@ class SignalService:
                         signals.append(signal)
                         active_assets.add(signal["asset"])
                         existing_signal_ids.add(signal_id)
+                    group_suppressed_count = sum(1 for signal in result.get("signals", []) if signal.get("suppressed_reason"))
+                    live_signal_count = sum(1 for signal in result.get("signals", []) if signal.get("signal_id") and not signal.get("suppressed_reason"))
+                    result["suppressed_signal_count"] = group_suppressed_count
+                    if str(result.get("status", "")).upper() == "SIGNAL" and group_suppressed_count and live_signal_count == 0:
+                        result["status"] = "SUPPRESSED"
                     results.append(result)
                 except Exception as exc:
                     results.append({"symbol": symbol, "timeframe": timeframe, "status": "ERROR", "error": str(exc)})

@@ -273,6 +273,7 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual(result["scan"]["new_signal_count"], 0)
         self.assertGreaterEqual(result["scan"]["suppressed_signal_count"], 1)
         bnb_group = next(group for group in result["scan"]["groups"] if group["symbol"] == "BNBUSDT")
+        self.assertEqual(bnb_group["status"], "SUPPRESSED")
         self.assertEqual(bnb_group["signals"][0]["suppressed_reason"], "STALE_ENTRY")
 
     def test_worker_only_notifies_new_signals(self) -> None:
