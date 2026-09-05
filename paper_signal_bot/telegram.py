@@ -73,6 +73,28 @@ def fmt_float(value: Any, digits: int = 4) -> str:
         return "n/a"
 
 
+def fmt_signed_bps(value: Any) -> str:
+    try:
+        return f"{float(value):+.1f} bps"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
+def duration_label(seconds: Any) -> str:
+    try:
+        total = max(int(round(float(seconds))), 0)
+    except (TypeError, ValueError):
+        return "n/a"
+    if total < 60:
+        return f"{total}s"
+    minutes = total // 60
+    if minutes < 120:
+        return f"{minutes}m"
+    hours = minutes // 60
+    remainder = minutes % 60
+    return f"{hours}h {remainder}m" if remainder else f"{hours}h"
+
+
 def short_text(value: Any, limit: int = 160) -> str:
     text = "" if value is None else str(value)
     text = " ".join(text.split())
@@ -111,6 +133,8 @@ def status_icon(status: Any) -> str:
     text = str(status or "").upper()
     if text == "SIGNAL":
         return "✅"
+    if text == "SUPPRESSED":
+        return "🟠"
     if text == "ERROR":
         return "🚨"
     if text == "INSUFFICIENT_HISTORY":
@@ -200,6 +224,7 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
         "📊 <b>LAST SCAN</b>",
         "• State: <b>{state}</b>".format(state=esc(state)),
         "• New signals: <b>{count}</b>".format(count=esc(scan_summary.get("new_signal_count", 0))),
+        "• Suppressed: <b>{count}</b>".format(count=esc(scan_summary.get("suppressed_signal_count", 0))),
         "• Active positions: <b>{active}</b>".format(active=esc(scan_summary.get("active_position_count", 0))),
         "• Rules scanned: <b>{rules}</b>".format(rules=rules_scanned),
         "• Data: <b>{data}</b>".format(data=esc(data_state)),
@@ -221,6 +246,13 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
         ]
         if group.get("error"):
             group_lines.append("• Error: <code>{error}</code>".format(error=esc(short_text(group.get("error")))))
+        if group.get("suppressed_signal_count"):
+            group_lines.append(
+                "• Suppressed: <code>{count}</code> {reasons}".format(
+                    count=esc(group.get("suppressed_signal_count")),
+                    reasons=esc(", ".join(group.get("suppressed_reasons") or [])),
+                )
+            )
         if group.get("market_breadth_count") is not None:
             group_lines.extend(
                 [
@@ -280,6 +312,7 @@ def format_signal_message(signal: dict[str, Any]) -> str:
     candidate = signal.get("candidate", {})
     features = signal.get("features", {})
     strategy_id = signal.get("strategy_id", "")
+    notify_time = signal.get("notify_time_utc") or signal.get("created_utc") or signal.get("scan_time_utc")
     side = str(signal.get("side", "")).upper()
     side_icon = "📈" if side == "LONG" else "📉" if side == "SHORT" else "📡"
     quality_lines = [
@@ -364,6 +397,20 @@ def format_signal_message(signal: dict[str, Any]) -> str:
             "• Entry time: <b>{entry_time}</b>".format(
                 entry_time=esc(compact_utc(signal.get("entry_time_utc", ""))),
             ),
+            "• Notify time: <b>{notify_time}</b>".format(
+                notify_time=esc(compact_utc(notify_time)),
+            ),
+            "• Entry age: <code>{age}</code> | Max lag: <code>{max_lag}</code>".format(
+                age=esc(duration_label(signal.get("entry_lag_seconds"))),
+                max_lag=esc(duration_label(signal.get("max_entry_lag_seconds"))),
+            ),
+            "• Market at notify: <code>{market}</code>".format(
+                market=fmt_float(signal.get("market_price_at_scan"), 4),
+            ),
+            "• Move since entry: <code>{move}</code> | Max chase: <code>{max_chase}</code>".format(
+                move=esc(fmt_signed_bps(signal.get("entry_price_move_bps"))),
+                max_chase=esc(fmt_signed_bps(signal.get("max_chase_bps"))),
+            ),
             "• Exit model: <code>HOLD_{hold}_BARS</code>".format(hold=esc(candidate.get("hold_bars", ""))),
             "• Planned exit: <b>{exit_time}</b>".format(
                 exit_time=esc(compact_utc(signal.get("planned_exit_time_utc", ""))),
@@ -373,7 +420,7 @@ def format_signal_message(signal: dict[str, Any]) -> str:
             *quality_lines,
             "",
             "🔒 <b>PAPER ONLY / NO AUTO-TRADE</b>",
-            clock_line(signal.get("signal_time_utc")),
+            clock_line(notify_time),
         ]
     )
 

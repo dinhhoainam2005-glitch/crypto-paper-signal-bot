@@ -27,13 +27,25 @@ def compact_scan(scan_result: dict[str, Any]) -> dict[str, Any]:
     groups = []
     for group in scan.get("groups", []):
         features = group.get("features", {})
+        group_signals = group.get("signals", [])
+        suppressed_reasons = [
+            str(signal.get("suppressed_reason"))
+            for signal in group_signals
+            if signal.get("suppressed_reason")
+        ]
+        live_signal_count = sum(1 for signal in group_signals if signal.get("signal_id") and not signal.get("suppressed_reason"))
+        status = group.get("status")
+        if str(status).upper() == "SIGNAL" and live_signal_count == 0 and suppressed_reasons:
+            status = "SUPPRESSED"
         groups.append(
             {
                 "symbol": group.get("symbol"),
                 "timeframe": group.get("timeframe"),
-                "status": group.get("status"),
+                "status": status,
                 "latest_closed_bar_utc": group.get("latest_closed_bar_utc"),
                 "raw_signal_count": group.get("raw_signal_count", 0),
+                "suppressed_signal_count": len(suppressed_reasons),
+                "suppressed_reasons": sorted(set(suppressed_reasons)),
                 "candidate_count": group.get("candidate_count", 0),
                 "quote_volume_prior_z_20": features.get("quote_volume_prior_z_20"),
                 "market_breadth_count": features.get("market_breadth_count"),
@@ -43,6 +55,11 @@ def compact_scan(scan_result: dict[str, Any]) -> dict[str, Any]:
                 "breadth_min": features.get("breadth_min"),
                 "premium_close_prior_z_24": features.get("premium_close_prior_z_24"),
                 "realized_vol_24": features.get("realized_vol_24"),
+                "quote_imbalance": features.get("quote_imbalance"),
+                "taker_buy_quote_ratio": features.get("taker_buy_quote_ratio"),
+                "flow_directional": features.get("flow_directional"),
+                "flow_thr": features.get("flow_thr"),
+                "quality_realized_vol_24_min": features.get("quality_realized_vol_24_min"),
                 "full_derivatives_state_available": features.get("full_derivatives_state_available"),
                 "premium_error": group.get("premium_error"),
                 "derivatives_error": group.get("derivatives_error"),
@@ -56,6 +73,7 @@ def compact_scan(scan_result: dict[str, Any]) -> dict[str, Any]:
         "strategy_id": STRATEGY_ID,
         "paper_only": True,
         "new_signal_count": scan.get("new_signal_count", 0),
+        "suppressed_signal_count": scan.get("suppressed_signal_count", 0),
         "active_position_count": len(state.get("active_positions", [])),
         "groups": groups,
     }

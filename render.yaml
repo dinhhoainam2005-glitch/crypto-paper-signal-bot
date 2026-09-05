@@ -11,7 +11,13 @@ services:
       - key: BINANCE_FAPI_BASE_URL
         value: https://fapi.binance.com
       - key: SCAN_INTERVAL_SECONDS
-        value: "300"
+        value: "60"
+      - key: MAX_INTERNAL_SCAN_INTERVAL_SECONDS
+        value: "60"
+      - key: MAX_SIGNAL_ENTRY_LAG_SECONDS
+        value: "600"
+      - key: MAX_SIGNAL_CHASE_BPS
+        value: "40"
       - key: MAX_SIGNALS_RETAINED
         value: "500"
       - key: TELEGRAM_ENABLED

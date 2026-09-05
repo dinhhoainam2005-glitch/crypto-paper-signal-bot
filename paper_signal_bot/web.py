@@ -29,6 +29,43 @@ def now_iso() -> str:
 
 NOTIFY_LOCK = threading.Lock()
 LAST_HEARTBEAT_SENT = 0.0
+DEFAULT_SCAN_INTERVAL_SECONDS = 60
+DEFAULT_MAX_SIGNAL_ENTRY_LAG_SECONDS = 600
+DEFAULT_MAX_SIGNAL_CHASE_BPS = 40.0
+
+
+def now_ms() -> int:
+    return int(datetime.now(timezone.utc).timestamp() * 1000)
+
+
+def iso_from_ms(value: int) -> str:
+    return datetime.fromtimestamp(value / 1000, tz=timezone.utc).isoformat()
+
+
+def env_int(name: str, default: int, minimum: int | None = None) -> int:
+    try:
+        value = int(os.getenv(name, str(default)))
+    except ValueError:
+        value = default
+    if minimum is not None:
+        value = max(value, minimum)
+    return value
+
+
+def env_float(name: str, default: float, minimum: float | None = None) -> float:
+    try:
+        value = float(os.getenv(name, str(default)))
+    except ValueError:
+        value = default
+    if minimum is not None:
+        value = max(value, minimum)
+    return value
+
+
+def effective_scan_interval_seconds() -> int:
+    configured = env_int("SCAN_INTERVAL_SECONDS", DEFAULT_SCAN_INTERVAL_SECONDS, 15)
+    max_interval = env_int("MAX_INTERNAL_SCAN_INTERVAL_SECONDS", DEFAULT_SCAN_INTERVAL_SECONDS, 15)
+    return min(configured, max_interval)
 
 
 def compact_scan(scan_result: dict[str, Any]) -> dict[str, Any]:
@@ -36,13 +73,25 @@ def compact_scan(scan_result: dict[str, Any]) -> dict[str, Any]:
     groups = []
     for group in scan.get("groups", []):
         features = group.get("features", {})
+        group_signals = group.get("signals", [])
+        suppressed_reasons = [
+            str(signal.get("suppressed_reason"))
+            for signal in group_signals
+            if signal.get("suppressed_reason")
+        ]
+        live_signal_count = sum(1 for signal in group_signals if signal.get("signal_id") and not signal.get("suppressed_reason"))
+        status = group.get("status")
+        if str(status).upper() == "SIGNAL" and live_signal_count == 0 and suppressed_reasons:
+            status = "SUPPRESSED"
         groups.append(
             {
                 "symbol": group.get("symbol"),
                 "timeframe": group.get("timeframe"),
-                "status": group.get("status"),
+                "status": status,
                 "latest_closed_bar_utc": group.get("latest_closed_bar_utc"),
                 "raw_signal_count": group.get("raw_signal_count", 0),
+                "suppressed_signal_count": len(suppressed_reasons),
+                "suppressed_reasons": sorted(set(suppressed_reasons)),
                 "candidate_count": group.get("candidate_count", 0),
                 "quote_volume_prior_z_20": features.get("quote_volume_prior_z_20"),
                 "market_breadth_count": features.get("market_breadth_count"),
@@ -70,6 +119,7 @@ def compact_scan(scan_result: dict[str, Any]) -> dict[str, Any]:
         "strategy_id": STRATEGY_ID,
         "paper_only": True,
         "new_signal_count": scan.get("new_signal_count", 0),
+        "suppressed_signal_count": scan.get("suppressed_signal_count", 0),
         "active_position_count": len(state.get("active_positions", [])),
         "groups": groups,
     }
@@ -118,10 +168,15 @@ class SignalService:
     def active_assets(self) -> set[str]:
         return self.active_assets_from_state(self.store.load())
 
-    def scan_once(self) -> dict[str, Any]:
+    def scan_once(self, now_ms_override: int | None = None) -> dict[str, Any]:
         with self.lock:
+            scan_started_ms = now_ms_override if now_ms_override is not None else now_ms()
+            scan_started_utc = iso_from_ms(scan_started_ms)
+            max_entry_lag_seconds = env_int("MAX_SIGNAL_ENTRY_LAG_SECONDS", DEFAULT_MAX_SIGNAL_ENTRY_LAG_SECONDS, 0)
+            max_chase_bps = env_float("MAX_SIGNAL_CHASE_BPS", DEFAULT_MAX_SIGNAL_CHASE_BPS, 0.0)
             results: list[dict[str, Any]] = []
             signals: list[dict[str, Any]] = []
+            suppressed_signals: list[dict[str, Any]] = []
             state_before = self.store.load()
             active_assets = self.active_assets_from_state(state_before)
             existing_signal_ids = self.existing_signal_ids_from_state(state_before)
@@ -170,6 +225,7 @@ class SignalService:
                         premium_klines=premium,
                         derivatives_state_available=derivatives_ok,
                         market_klines_by_symbol=market_klines_by_symbol,
+                        now_ms=scan_started_ms,
                     )
                     if premium_error is not None:
                         result["premium_error"] = premium_error
@@ -186,11 +242,29 @@ class SignalService:
                         signal["signal_id"] = signal_id
                         if signal_id in existing_signal_ids:
                             signal["suppressed_reason"] = "DUPLICATE_SIGNAL_ID"
+                            suppressed_signals.append(signal)
+                            continue
+                        signal["created_utc"] = scan_started_utc
+                        signal["notify_time_utc"] = scan_started_utc
+                        entry_lag_seconds = max((scan_started_ms - int(signal.get("entry_time_ms", scan_started_ms))) / 1000.0, 0.0)
+                        signal["entry_lag_seconds"] = entry_lag_seconds
+                        signal["max_entry_lag_seconds"] = max_entry_lag_seconds
+                        signal["max_chase_bps"] = max_chase_bps
+                        if entry_lag_seconds > max_entry_lag_seconds:
+                            signal["suppressed_reason"] = "STALE_ENTRY"
+                            signal["status"] = "SUPPRESSED_STALE_ENTRY"
+                            suppressed_signals.append(signal)
+                            continue
+                        chase_bps = signal.get("entry_price_move_bps")
+                        if chase_bps is not None and float(chase_bps) > max_chase_bps:
+                            signal["suppressed_reason"] = "CHASE_PRICE_TOO_FAR"
+                            signal["status"] = "SUPPRESSED_CHASE_PRICE_TOO_FAR"
+                            suppressed_signals.append(signal)
                             continue
                         if signal["asset"] in active_assets:
                             signal["suppressed_reason"] = "ACTIVE_POSITION"
+                            suppressed_signals.append(signal)
                             continue
-                        signal["created_utc"] = now_iso()
                         signal["status"] = "PAPER_OPEN_PLANNED"
                         signals.append(signal)
                         active_assets.add(signal["asset"])
@@ -202,10 +276,12 @@ class SignalService:
             scan = {
                 "strategy_id": STRATEGY_ID,
                 "paper_only": True,
-                "scanned_utc": now_iso(),
+                "scanned_utc": scan_started_utc,
                 "groups": results,
                 "new_signals": signals,
                 "new_signal_count": len(signals),
+                "suppressed_signals": suppressed_signals,
+                "suppressed_signal_count": len(suppressed_signals),
             }
             state = self.store.record_scan(scan, signals)
             return {"scan": scan, "state": state}
@@ -419,7 +495,7 @@ def background_loop(interval_seconds: int, heartbeat_interval_seconds: int) -> N
 def main() -> None:
     port = int(os.getenv("PORT", "10000"))
     host = os.getenv("HOST", "0.0.0.0")
-    interval = int(os.getenv("SCAN_INTERVAL_SECONDS", "300"))
+    interval = effective_scan_interval_seconds()
     heartbeat_interval = int(os.getenv("HEARTBEAT_INTERVAL_SECONDS", "3600"))
     disable_background = os.getenv("DISABLE_BACKGROUND_SCAN", "").lower() in {"1", "true", "yes"}
     print(

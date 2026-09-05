@@ -661,12 +661,14 @@ def evaluate_latest(
     market_klines_by_symbol: dict[str, list[list[Any]]] | None = None,
     now_ms: int | None = None,
 ) -> dict[str, Any]:
+    now = utc_now_ms() if now_ms is None else now_ms
     candidates = [candidate_item for candidate_item in CANDIDATES if candidate_item.symbol == symbol and candidate_item.timeframe == timeframe]
     if not candidates:
         return {"symbol": symbol, "timeframe": timeframe, "status": "NO_CANDIDATES", "signals": []}
 
-    closed = closed_rows(klines, timeframe, now_ms=now_ms, premium=False)
-    premium_closed = closed_rows(premium_klines, timeframe, now_ms=now_ms, premium=True) if premium_klines else []
+    parsed_klines = sorted((parse_kline(row) for row in klines), key=lambda item: item["open_time"])
+    closed = closed_rows(klines, timeframe, now_ms=now, premium=False)
+    premium_closed = closed_rows(premium_klines, timeframe, now_ms=now, premium=True) if premium_klines else []
     if len(closed) < MIN_HISTORY_BARS:
         return {
             "symbol": symbol,
@@ -697,7 +699,7 @@ def evaluate_latest(
             closed=closed,
             index=index,
             market_klines_by_symbol=market_rows,
-            now_ms=now_ms,
+            now_ms=now,
         )
         features["premium_close_prior_z_24"] = premium_z
         features["realized_vol_24"] = realized_vol_24
@@ -710,10 +712,18 @@ def evaluate_latest(
         interval_ms = INTERVAL_MS[timeframe]
         entry_time = latest["open_time"] + interval_ms
         next_open = None
-        for row in [parse_kline(raw) for raw in klines]:
+        market_price_at_scan = latest["close"]
+        for row in parsed_klines:
+            if row["open_time"] <= now:
+                market_price_at_scan = row["close"]
             if row["open_time"] == entry_time:
                 next_open = row["open"]
-                break
+        chase_bps = None
+        if next_open and market_price_at_scan and next_open > 0.0 and market_price_at_scan > 0.0:
+            if candidate_item.direction == "LONG":
+                chase_bps = (market_price_at_scan / next_open - 1.0) * 10000.0
+            else:
+                chase_bps = (next_open / market_price_at_scan - 1.0) * 10000.0
         raw_signals.append(
             {
                 "strategy_id": STRATEGY_ID,
@@ -724,12 +734,16 @@ def evaluate_latest(
                 "side": candidate_item.direction,
                 "signal_time_ms": latest["open_time"],
                 "signal_time_utc": ms_to_iso(latest["open_time"]),
+                "scan_time_ms": now,
+                "scan_time_utc": ms_to_iso(now),
                 "entry_time_ms": entry_time,
                 "entry_time_utc": ms_to_iso(entry_time),
                 "planned_exit_time_ms": entry_time + interval_ms * candidate_item.hold_bars,
                 "planned_exit_time_utc": ms_to_iso(entry_time + interval_ms * candidate_item.hold_bars),
                 "entry_model": "NEXT_OPEN",
                 "entry_price": next_open,
+                "market_price_at_scan": market_price_at_scan,
+                "entry_price_move_bps": chase_bps,
                 "paper_only": True,
                 "risk_fraction": candidate_item.risk_fraction,
                 "max_positions": candidate_item.max_positions,
@@ -740,7 +754,7 @@ def evaluate_latest(
 
     raw_signals.sort(key=lambda item: item["candidate"]["selection_score"], reverse=True)
     selected = raw_signals[:1]
-    snapshot = raw_feature_snapshots[0] if raw_feature_snapshots else {}
+    snapshot = selected[0]["features"] if selected else raw_feature_snapshots[0] if raw_feature_snapshots else {}
     return {
         "symbol": symbol,
         "timeframe": timeframe,

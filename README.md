@@ -20,6 +20,7 @@ Current paper strategy:
 - Gate: breadth-confirmed momentum/pullback triggers plus strict R15C volume/flow/realized-vol filters
 - Risk model: paper signal risk fraction `0.25` per position, max 4 positions per sleeve
 - Research status: R24A quality-first tightening selected for paper observation only
+- Freshness guard: suppress paper trade alerts when entry is older than 10 minutes or price has already moved more than 40 bps in the signal direction
 
 ## Local Run
 
@@ -51,7 +52,7 @@ Start command:
 python -m paper_signal_bot.web
 ```
 
-The web service exposes a public URL and still runs the paper scanner in a background thread while the Render instance is awake.
+The web service exposes a public URL and still runs the paper scanner in a background thread while the Render instance is awake. The internal scanner is capped at a 1-minute interval even if `SCAN_INTERVAL_SECONDS` is accidentally set higher.
 
 Useful routes:
 
@@ -67,7 +68,10 @@ Required environment variables:
 ```text
 PAPER_ONLY=true
 BINANCE_FAPI_BASE_URL=https://fapi.binance.com
-SCAN_INTERVAL_SECONDS=300
+SCAN_INTERVAL_SECONDS=60
+MAX_INTERNAL_SCAN_INTERVAL_SECONDS=60
+MAX_SIGNAL_ENTRY_LAG_SECONDS=600
+MAX_SIGNAL_CHASE_BPS=40
 MAX_SIGNALS_RETAINED=500
 TELEGRAM_ENABLED=true
 TELEGRAM_STARTUP_ENABLED=true

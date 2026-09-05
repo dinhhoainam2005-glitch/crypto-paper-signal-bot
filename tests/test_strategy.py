@@ -127,7 +127,7 @@ class StrategyTests(unittest.TestCase):
         self.assertNotIn(("SOLUSDT", "4h"), groups)
         self.assertIn(("SOLUSDT", "1h"), R24A_CONTEXT_MARKETS)
 
-    def test_telegram_message_is_r22c_paper_signal(self) -> None:
+    def test_telegram_message_is_r24a_paper_signal(self) -> None:
         signal = {
             "symbol": "BTCUSDT",
             "side": "LONG",
@@ -135,7 +135,14 @@ class StrategyTests(unittest.TestCase):
             "strategy_id": STRATEGY_ID,
             "signal_time_utc": "2026-08-20T00:00:00+00:00",
             "entry_time_utc": "2026-08-20T04:00:00+00:00",
-            "entry_price": None,
+            "created_utc": "2026-08-20T04:01:30+00:00",
+            "notify_time_utc": "2026-08-20T04:01:30+00:00",
+            "entry_price": 100.0,
+            "market_price_at_scan": 100.25,
+            "entry_price_move_bps": 25.0,
+            "entry_lag_seconds": 90,
+            "max_entry_lag_seconds": 600,
+            "max_chase_bps": 40.0,
             "sleeve_id": "r24a_bnb_quality_long",
             "risk_fraction": 0.25,
             "candidate": {"candidate_id": "breadth_breakout_BTC", "hold_bars": 12, "family": "breadth_breakout"},
@@ -156,6 +163,9 @@ class StrategyTests(unittest.TestCase):
         self.assertIn("🟢🔺 <b>PAPER LONG — BTCUSDT</b> 🔺🟢", text)
         self.assertIn("✅ <b>LIVE PAPER SIGNAL</b>", text)
         self.assertIn("🧩 Sleeve: <code>r24a_bnb_quality_long</code>", text)
+        self.assertIn("• Notify time: <b>2026-08-20 04:01 UTC</b>", text)
+        self.assertIn("• Entry age: <code>1m</code> | Max lag: <code>10m</code>", text)
+        self.assertIn("• Move since entry: <code>+25.0 bps</code> | Max chase: <code>+40.0 bps</code>", text)
         self.assertIn("📊 <b>SIGNAL QUALITY</b>", text)
         self.assertIn("🔒 <b>PAPER ONLY / NO AUTO-TRADE</b>", text)
 
@@ -233,13 +243,37 @@ class StrategyTests(unittest.TestCase):
             service.client = FakeClient(rows_by_symbol, premium_rows)
             service.store = JsonStore(Path(tmp) / "paper_state.json")
 
-            first = service.scan_once()
-            second = service.scan_once()
+            now_ms = start + 80 * INTERVAL_MS["4h"] + 1
+            first = service.scan_once(now_ms_override=now_ms)
+            second = service.scan_once(now_ms_override=now_ms)
 
         self.assertGreaterEqual(first["scan"]["new_signal_count"], 1)
         self.assertEqual(len(first["scan"]["new_signals"]), first["scan"]["new_signal_count"])
         self.assertEqual(second["scan"]["new_signal_count"], 0)
         self.assertEqual(second["scan"]["new_signals"], [])
+
+    def test_service_suppresses_stale_entry_signal(self) -> None:
+        start = 1_700_000_000_000
+        rows_by_symbol = {
+            "BTCUSDT": trending_rows(start, base=100.0, step=1.0),
+            "ETHUSDT": trending_rows(start, base=200.0, step=1.5),
+            "SOLUSDT": trending_rows(start, base=50.0, step=0.6),
+            "BNBUSDT": trending_rows(start, base=300.0, step=1.2),
+        }
+        premium_rows = [premium(start + i * INTERVAL_MS["4h"], 0.0) for i in range(81)]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            service = SignalService()
+            service.client = FakeClient(rows_by_symbol, premium_rows)
+            service.store = JsonStore(Path(tmp) / "paper_state.json")
+
+            late_ms = start + 80 * INTERVAL_MS["4h"] + 31 * 60 * 1000
+            result = service.scan_once(now_ms_override=late_ms)
+
+        self.assertEqual(result["scan"]["new_signal_count"], 0)
+        self.assertGreaterEqual(result["scan"]["suppressed_signal_count"], 1)
+        bnb_group = next(group for group in result["scan"]["groups"] if group["symbol"] == "BNBUSDT")
+        self.assertEqual(bnb_group["signals"][0]["suppressed_reason"], "STALE_ENTRY")
 
     def test_worker_only_notifies_new_signals(self) -> None:
         new_signal = {"signal_id": "new-1", "symbol": "BTCUSDT"}
