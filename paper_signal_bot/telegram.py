@@ -35,6 +35,17 @@ def compact_utc(value: Any) -> str:
         return text.replace("+00:00", " UTC")
 
 
+def utc_vn_label(value: Any) -> str:
+    parsed = parse_utc(value)
+    if parsed is None:
+        return compact_utc(value)
+    vn = parsed.astimezone(timezone(timedelta(hours=7)))
+    return "{utc} | VN {vn}".format(
+        utc=parsed.strftime("%Y-%m-%d %H:%M UTC"),
+        vn=vn.strftime("%Y-%m-%d %H:%M"),
+    )
+
+
 def interval_label(seconds: int) -> str:
     if seconds % 3600 == 0:
         return f"{seconds // 3600}h"
@@ -371,7 +382,7 @@ def format_signal_message(signal: dict[str, Any]) -> str:
         )
     quality_lines.append(
         "• Signal time: <b>{signal_time}</b>".format(
-            signal_time=esc(compact_utc(signal.get("signal_time_utc", ""))),
+            signal_time=esc(utc_vn_label(signal.get("signal_time_utc", ""))),
         )
     )
     return "\n".join(
@@ -395,10 +406,10 @@ def format_signal_message(signal: dict[str, Any]) -> str:
             ),
             "• Entry model: <code>NEXT_OPEN</code>",
             "• Entry time: <b>{entry_time}</b>".format(
-                entry_time=esc(compact_utc(signal.get("entry_time_utc", ""))),
+                entry_time=esc(utc_vn_label(signal.get("entry_time_utc", ""))),
             ),
             "• Notify time: <b>{notify_time}</b>".format(
-                notify_time=esc(compact_utc(notify_time)),
+                notify_time=esc(utc_vn_label(notify_time)),
             ),
             "• Entry age: <code>{age}</code> | Max lag: <code>{max_lag}</code>".format(
                 age=esc(duration_label(signal.get("entry_lag_seconds"))),
@@ -413,7 +424,7 @@ def format_signal_message(signal: dict[str, Any]) -> str:
             ),
             "• Exit model: <code>HOLD_{hold}_BARS</code>".format(hold=esc(candidate.get("hold_bars", ""))),
             "• Planned exit: <b>{exit_time}</b>".format(
-                exit_time=esc(compact_utc(signal.get("planned_exit_time_utc", ""))),
+                exit_time=esc(utc_vn_label(signal.get("planned_exit_time_utc", ""))),
             ),
             "",
             "📊 <b>SIGNAL QUALITY</b>",

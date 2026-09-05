@@ -359,6 +359,11 @@ class Handler(BaseHTTPRequestHandler):
                     "entry_model": "NEXT_OPEN",
                     "risk_fraction": 0.25,
                     "max_positions_per_sleeve": 4,
+                    "freshness_guard": {
+                        "effective_scan_interval_seconds": effective_scan_interval_seconds(),
+                        "max_signal_entry_lag_seconds": env_int("MAX_SIGNAL_ENTRY_LAG_SECONDS", DEFAULT_MAX_SIGNAL_ENTRY_LAG_SECONDS, 0),
+                        "max_signal_chase_bps": env_float("MAX_SIGNAL_CHASE_BPS", DEFAULT_MAX_SIGNAL_CHASE_BPS, 0.0),
+                    },
                     "report_metrics": PORTFOLIO_METRICS,
                     "full_derivatives_state_available_required": False,
                     "candidates": [candidate.__dict__ for candidate in CANDIDATES],
