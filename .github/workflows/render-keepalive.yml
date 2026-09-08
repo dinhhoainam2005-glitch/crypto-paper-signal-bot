@@ -13,7 +13,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 2
     steps:
-      - name: Ping Render health endpoint
+      - name: Trigger Render scan endpoint
+        env:
+          RENDER_SCAN_TOKEN: ${{ secrets.RENDER_SCAN_TOKEN }}
         run: |
-          curl --fail --silent --show-error --max-time 30 --retry 2 \
-            https://crypto-paper-signal-bot-web.onrender.com/health
+          if [ -n "$RENDER_SCAN_TOKEN" ]; then
+            curl --fail --silent --show-error --max-time 45 --retry 2 \
+              -H "X-Scan-Token: $RENDER_SCAN_TOKEN" \
+              https://crypto-paper-signal-bot-web.onrender.com/scan
+          else
+            curl --fail --silent --show-error --max-time 45 --retry 2 \
+              https://crypto-paper-signal-bot-web.onrender.com/scan
+          fi
