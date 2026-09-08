@@ -73,6 +73,14 @@ def effective_scan_interval_seconds() -> int:
     return min(configured, max_interval)
 
 
+def effective_market_pulse_events_per_scan() -> int:
+    return env_int(
+        "MAX_MARKET_PULSE_EVENTS_PER_SCAN",
+        DEFAULT_MAX_MARKET_PULSE_EVENTS_PER_SCAN,
+        1,
+    )
+
+
 def compact_scan(scan_result: dict[str, Any]) -> dict[str, Any]:
     scan = scan_result.get("scan", {})
     groups = []
@@ -305,7 +313,7 @@ class SignalService:
                     self.store.record_error(f"{symbol} {timeframe}: {exc}")
             existing_events = {event.get("event_id") for event in state_before.get("market_events", [])}
             fresh_events = [e for e in pulse["events"] if e["event_id"] not in existing_events and e["expires_at_ms"] >= evaluated_ms and e["candle_close_time_ms"] >= self.session_floor_ms]
-            events = fresh_events[:env_int("MAX_MARKET_PULSE_EVENTS_PER_SCAN", DEFAULT_MAX_MARKET_PULSE_EVENTS_PER_SCAN, 1)]
+            events = fresh_events[:effective_market_pulse_events_per_scan()]
             previous_ms = state_before.get("last_scan", {}).get("scan_started_ms")
             scan = {
                 "strategy_id": STRATEGY_ID,
@@ -401,6 +409,7 @@ class Handler(BaseHTTPRequestHandler):
                         "markets": [f"{s} {tf}" for s, tf in PULSE_MARKETS],
                         "directions": ["LONG", "SHORT"],
                         "max_close_to_notify_seconds": MAX_PULSE_LAG_SECONDS,
+                        "max_events_per_scan": effective_market_pulse_events_per_scan(),
                         "thresholds_fraction": THRESHOLDS,
                         "performance_metrics": None,
                     },
