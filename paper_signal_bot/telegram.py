@@ -116,6 +116,8 @@ def short_text(value: Any, limit: int = 160) -> str:
 
 def bot_label(strategy_id: str | None = None) -> str:
     text = strategy_id or ""
+    if text.startswith("R26A"):
+        return "R26A Quality Core Bot"
     if text.startswith("R24A"):
         return "R24A Strict Quality Bot"
     if text.startswith("R23B"):
@@ -131,6 +133,8 @@ def bot_label(strategy_id: str | None = None) -> str:
 
 def engine_label(strategy_id: str) -> str:
     text = strategy_id or ""
+    if text.startswith("R26A"):
+        return "R26A-QUALITY-CORE-R25A-PULSE"
     if text.startswith("R24A"):
         return "R24A-STRICT-QUALITY-R15C-BNB"
     if text.startswith("R23B"):
@@ -188,8 +192,13 @@ def format_startup_message(*, strategy_id: str, scan_interval_seconds: int, hear
             "📊 <b>SIGNAL MARKETS</b>",
             "• BTCUSDT 1h, 4h",
             "• ETHUSDT 1h, 4h",
+            "• SOLUSDT 4h",
             "• BNBUSDT 4h",
             "• Context breadth: BTC/ETH/SOL/BNB 1h + 4h",
+            "",
+            "📡 <b>R25A MARKET PULSE / WATCH</b>",
+            "• BTC / ETH / SOL / BNB: 15m + 1h + 4h",
+            "• LONG + SHORT | Watch only",
             "",
             "🛡️ <b>SAFETY</b>",
             "• SIGNAL_SEND: <b>ON</b>",
@@ -216,13 +225,16 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
     latest_candle = ""
     latest_dt = None
     for group in groups:
-        parsed = parse_utc(group.get("latest_closed_bar_utc"))
+        parsed = parse_utc(group.get("latest_candle_close_utc"))
         if parsed is not None and (latest_dt is None or parsed > latest_dt):
             latest_dt = parsed
-            latest_candle = compact_utc(group.get("latest_closed_bar_utc"))
-    state = "OK" if all(str(group.get("status", "")).upper() != "ERROR" for group in groups) else "DEGRADED"
+            latest_candle = compact_utc(group.get("latest_candle_close_utc"))
+    pulse_groups = scan_summary.get("pulse_groups", [])
+    all_groups = [*groups, *pulse_groups]
+    states = [str(g.get("data_state", "UNKNOWN")) for g in all_groups]
+    data_state = "FRESH" if states and all(s == "FRESH" for s in states) else "DEGRADED" if "FRESH" in states else "UNKNOWN"
+    state = "OK" if data_state == "FRESH" and all(g.get("status") not in {"ERROR", "INVALID_DATA", "DATA_GAP", "INSUFFICIENT_HISTORY"} for g in all_groups) else "DEGRADED"
     data_age = data_age_label(latest_dt.isoformat() if latest_dt else None, scanned_utc)
-    data_state = "FRESH" if latest_dt is not None and data_age != "n/a" else "UNKNOWN"
     rules_scanned = sum(int(float(group.get("candidate_count") or 0)) for group in groups)
     lines = [
         f"💞📡 <b>{bot_label(strategy_id).upper()} HEARTBEAT — MARKET WATCH ACTIVE</b>",
@@ -235,16 +247,22 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
         "📊 <b>LAST SCAN</b>",
         "• State: <b>{state}</b>".format(state=esc(state)),
         "• New signals: <b>{count}</b>".format(count=esc(scan_summary.get("new_signal_count", 0))),
+        "• New pulse alerts: <b>{count}</b> (watch)".format(count=esc(scan_summary.get("new_market_event_count", 0))),
         "• Suppressed: <b>{count}</b>".format(count=esc(scan_summary.get("suppressed_signal_count", 0))),
         "• Active positions: <b>{active}</b>".format(active=esc(scan_summary.get("active_position_count", 0))),
         "• Rules scanned: <b>{rules}</b>".format(rules=rules_scanned),
         "• Data: <b>{data}</b>".format(data=esc(data_state)),
-        "• Latest candle: <b>{candle}</b>".format(candle=esc(latest_candle or "n/a")),
-        "• Data age: <b>{age}</b>".format(age=esc(data_age)),
+        "• Latest candle close: <b>{candle}</b>".format(candle=esc(latest_candle or "n/a")),
+        "• Since close: <b>{age}</b>".format(age=esc(data_age)),
+        "• Scan duration: <b>{duration}</b>".format(duration=esc(duration_label(scan_summary.get("scan_duration_seconds")))),
+        "• Scan gap: <b>{duration}</b>".format(duration=esc(duration_label(scan_summary.get("scan_gap_seconds")))),
         "• At: <b>{at}</b>".format(at=esc(compact_utc(scanned_utc))),
         "",
         "📡 <b>MARKET SNAPSHOT</b>",
     ]
+    if pulse_groups:
+        fresh = sum(g.get("data_state") == "FRESH" and g.get("status") not in {"INSUFFICIENT_HISTORY", "INVALID_DATA", "DATA_GAP"} for g in pulse_groups)
+        lines.insert(-1, f"📡 R25A watch: <b>{fresh}/{len(pulse_groups)} feeds ready</b> | 15m + 1h + 4h | LONG + SHORT")
     for group in groups:
         group_lines = [
             "",
@@ -254,6 +272,10 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
                 tf=esc(group.get("timeframe", "")),
             ),
             "• State: <code>{status}</code>".format(status=esc(group.get("status", ""))),
+            "• Data: <code>{data}</code> | Close: {close}".format(
+                data=esc(group.get("data_state", "UNKNOWN")),
+                close=esc(compact_utc(group.get("latest_candle_close_utc")) or "n/a"),
+            ),
         ]
         if group.get("error"):
             group_lines.append("• Error: <code>{error}</code>".format(error=esc(short_text(group.get("error")))))
@@ -381,7 +403,7 @@ def format_signal_message(signal: dict[str, Any]) -> str:
             )
         )
     quality_lines.append(
-        "• Signal time: <b>{signal_time}</b>".format(
+        "• Candle open: <b>{signal_time}</b>".format(
             signal_time=esc(utc_vn_label(signal.get("signal_time_utc", ""))),
         )
     )
@@ -399,8 +421,9 @@ def format_signal_message(signal: dict[str, Any]) -> str:
             "",
             "📍 <b>PRICE PLAN</b>",
             "• Current: <code>{current}</code>".format(
-                current=fmt_float(features.get("close"), 4),
+                current=fmt_float(signal.get("market_price_at_scan"), 4),
             ),
+            "• Signal candle close: <code>{price}</code>".format(price=fmt_float(features.get("close"), 4)),
             "• Entry: <code>{entry_price}</code>".format(
                 entry_price=esc(signal.get("entry_price", "pending_next_open")),
             ),
@@ -434,6 +457,28 @@ def format_signal_message(signal: dict[str, Any]) -> str:
             clock_line(notify_time),
         ]
     )
+
+
+def format_market_pulse_message(event: dict[str, Any]) -> str:
+    icon = "📈" if event.get("side") == "LONG" else "📉"
+    return "\n".join([
+        f"📡 <b>R25A MARKET PULSE | {esc(event.get('symbol'))}</b>",
+        "━━━━━━━━━━━━━━━━━━━━━━━━",
+        f"{icon} Direction: <b>{esc(event.get('side'))}</b> | TF: <b>{esc(event.get('timeframe'))}</b>",
+        "👀 <b>WATCH ONLY | Chua phai lenh vao trade</b>",
+        "",
+        f"• Move: <b>{float(event['return_pct']):+.2f}%</b>",
+        f"• Candle close price: <code>{fmt_float(event.get('candle_close_price'))}</code>",
+        f"• Volume z20: <code>{fmt_float(event.get('volume_z20'), 2)}</code>",
+        f"• Breadth: <code>{event.get('market_breadth_count')}/{event.get('market_breadth_assets')}</code>",
+        "",
+        f"• Candle closed: <b>{esc(utc_vn_label(event.get('candle_close_time_utc')))}</b>",
+        f"• Notify: <b>{esc(utc_vn_label(event.get('notify_time_utc')))}</b>",
+        f"• Delay since close: <code>{duration_label(event.get('freshness_lag_seconds'))}</code>",
+        "",
+        "🔒 <b>PAPER WATCH / NO AUTO-TRADE</b>",
+        clock_line(event.get("notify_time_utc")),
+    ])
 
 
 class TelegramSender:

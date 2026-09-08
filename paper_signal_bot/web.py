@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -12,13 +14,15 @@ from urllib.parse import parse_qs, urlparse
 
 from .binance_client import BinanceFuturesClient
 from .storage import JsonStore
-from .strategy import PORTFOLIO_ID, PORTFOLIO_METRICS, PORTFOLIO_NAME, R24A_CONTEXT_MARKETS, STRATEGY_ID, candidate_groups, evaluate_latest
+from .market_pulse import MAX_PULSE_LAG_SECONDS, PULSE_ID, PULSE_MARKETS, THRESHOLDS, evaluate_market_pulses
+from .strategy import PORTFOLIO_ID, PORTFOLIO_METRICS, PORTFOLIO_NAME, R26A_CONTEXT_MARKETS, R26A_SCAN_MARKETS, STRATEGY_ID, candidate_groups, evaluate_latest
 from .telegram import (
     TelegramSender,
     env_enabled,
     format_heartbeat_message,
     format_signal_message,
     format_startup_message,
+    format_market_pulse_message,
     telegram_configured,
 )
 
@@ -27,7 +31,7 @@ def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-NOTIFY_LOCK = threading.Lock()
+NOTIFY_LOCK = threading.RLock()
 LAST_HEARTBEAT_SENT = 0.0
 DEFAULT_SCAN_INTERVAL_SECONDS = 60
 DEFAULT_MAX_SIGNAL_ENTRY_LAG_SECONDS = 600
@@ -89,6 +93,8 @@ def compact_scan(scan_result: dict[str, Any]) -> dict[str, Any]:
                 "timeframe": group.get("timeframe"),
                 "status": status,
                 "latest_closed_bar_utc": group.get("latest_closed_bar_utc"),
+                "latest_candle_close_utc": group.get("latest_candle_close_utc"),
+                "data_state": group.get("data_state", "UNKNOWN"),
                 "raw_signal_count": group.get("raw_signal_count", 0),
                 "suppressed_signal_count": len(suppressed_reasons),
                 "suppressed_reasons": sorted(set(suppressed_reasons)),
@@ -115,12 +121,16 @@ def compact_scan(scan_result: dict[str, Any]) -> dict[str, Any]:
     state = scan_result.get("state", {})
     return {
         "event": "paper_scan",
-        "time_utc": now_iso(),
+        "time_utc": scan.get("completed_utc", scan.get("scanned_utc", now_iso())),
         "strategy_id": STRATEGY_ID,
         "paper_only": True,
         "new_signal_count": scan.get("new_signal_count", 0),
         "suppressed_signal_count": scan.get("suppressed_signal_count", 0),
         "active_position_count": len(state.get("active_positions", [])),
+        "new_market_event_count": scan.get("new_market_event_count", 0),
+        "pulse_groups": scan.get("pulse_groups", []),
+        "scan_duration_seconds": scan.get("scan_duration_seconds"),
+        "scan_gap_seconds": scan.get("scan_gap_seconds"),
         "groups": groups,
     }
 
@@ -145,16 +155,17 @@ class SignalService:
         self.store = JsonStore()
         self.lock = threading.Lock()
         self.groups = candidate_groups()
-        self.context_markets = R24A_CONTEXT_MARKETS
+        self.context_markets = tuple(dict.fromkeys((*R26A_CONTEXT_MARKETS, *PULSE_MARKETS)))
+        self.session_floor_ms: int | None = None
 
     @staticmethod
-    def active_assets_from_state(state: dict[str, Any]) -> set[str]:
-        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    def active_assets_from_state(state: dict[str, Any], at_ms: int | None = None) -> set[str]:
+        current_ms = now_ms() if at_ms is None else at_ms
         active = state.get("active_positions", [])
         return {
             str(item.get("asset"))
             for item in active
-            if int(item.get("planned_exit_time_ms", 0)) > now_ms
+            if int(item.get("planned_exit_time_ms", 0)) > current_ms
         }
 
     @staticmethod
@@ -171,6 +182,7 @@ class SignalService:
     def scan_once(self, now_ms_override: int | None = None) -> dict[str, Any]:
         with self.lock:
             scan_started_ms = now_ms_override if now_ms_override is not None else now_ms()
+            started_monotonic = time.monotonic()
             scan_started_utc = iso_from_ms(scan_started_ms)
             max_entry_lag_seconds = env_int("MAX_SIGNAL_ENTRY_LAG_SECONDS", DEFAULT_MAX_SIGNAL_ENTRY_LAG_SECONDS, 0)
             max_chase_bps = env_float("MAX_SIGNAL_CHASE_BPS", DEFAULT_MAX_SIGNAL_CHASE_BPS, 0.0)
@@ -178,25 +190,26 @@ class SignalService:
             signals: list[dict[str, Any]] = []
             suppressed_signals: list[dict[str, Any]] = []
             state_before = self.store.load()
-            active_assets = self.active_assets_from_state(state_before)
+            if self.session_floor_ms is None:
+                self.session_floor_ms = scan_started_ms if now_ms_override is None and not state_before.get("scan_count") else 0
+            active_assets = self.active_assets_from_state(state_before, scan_started_ms)
             existing_signal_ids = self.existing_signal_ids_from_state(state_before)
             klines_cache: dict[tuple[str, str], list[list[Any]]] = {}
             premium_cache: dict[tuple[str, str], list[list[Any]]] = {}
             fetch_errors: dict[tuple[str, str], str] = {}
-            for symbol, timeframe in self.context_markets:
-                try:
-                    klines_cache[(symbol, timeframe)] = self.client.klines(symbol, timeframe, limit=220)
-                    premium_error = None
+            # Only klines affect R26A decisions. Diagnostic endpoints must not delay alerts.
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                jobs = {pool.submit(self.client.klines, symbol, tf, 220): (symbol, tf) for symbol, tf in self.context_markets}
+                for future in as_completed(jobs):
+                    key = jobs[future]
                     try:
-                        premium_cache[(symbol, timeframe)] = self.client.premium_index_klines(symbol, timeframe, limit=100)
+                        klines_cache[key] = future.result()
                     except Exception as exc:
-                        premium_error = str(exc)
-                        premium_cache[(symbol, timeframe)] = []
-                    if premium_error is not None:
-                        fetch_errors[(symbol, timeframe)] = f"premium: {premium_error}"
-                except Exception as exc:
-                    fetch_errors[(symbol, timeframe)] = str(exc)
-                    self.store.record_error(f"{symbol} {timeframe}: {exc}")
+                        fetch_errors[key] = str(exc)
+                        self.store.record_error(f"{key[0]} {key[1]}: {exc}")
+            evaluated_ms = scan_started_ms if now_ms_override is not None else now_ms()
+            pulse = evaluate_market_pulses(klines_cache, scan_started_ms)
+            snapshots = {(s["symbol"], s["timeframe"]): s for s in pulse["groups"]}
             for (symbol, timeframe), _candidates in self.groups.items():
                 try:
                     if (symbol, timeframe) not in klines_cache:
@@ -208,11 +221,7 @@ class SignalService:
                     if existing_fetch_error and existing_fetch_error.startswith("premium: "):
                         premium_error = existing_fetch_error.removeprefix("premium: ")
                     derivatives_error = None
-                    try:
-                        derivatives_ok = self.client.derivatives_state_available(symbol)
-                    except Exception as exc:
-                        derivatives_ok = False
-                        derivatives_error = str(exc)
+                    derivatives_ok = False
                     market_klines_by_symbol = {
                         market_symbol: rows
                         for (market_symbol, market_timeframe), rows in klines_cache.items()
@@ -227,6 +236,12 @@ class SignalService:
                         market_klines_by_symbol=market_klines_by_symbol,
                         now_ms=scan_started_ms,
                     )
+                    snapshot = snapshots[(symbol, timeframe)]
+                    result["data_state"] = snapshot["data_state"]
+                    result["diagnostics_status"] = "NOT_REQUESTED"
+                    if snapshot["status"] in {"STALE_DATA", "DATA_GAP", "INVALID_DATA", "INSUFFICIENT_HISTORY"}:
+                        result["status"] = snapshot["status"]
+                        result["signals"] = []
                     if premium_error is not None:
                         result["premium_error"] = premium_error
                     if derivatives_error is not None:
@@ -245,11 +260,19 @@ class SignalService:
                             suppressed_signals.append(signal)
                             continue
                         signal["created_utc"] = scan_started_utc
-                        signal["notify_time_utc"] = scan_started_utc
-                        entry_lag_seconds = max((scan_started_ms - int(signal.get("entry_time_ms", scan_started_ms))) / 1000.0, 0.0)
+                        signal["notify_time_utc"] = iso_from_ms(evaluated_ms)
+                        entry_lag_seconds = max((evaluated_ms - int(signal.get("entry_time_ms", scan_started_ms))) / 1000.0, 0.0)
                         signal["entry_lag_seconds"] = entry_lag_seconds
                         signal["max_entry_lag_seconds"] = max_entry_lag_seconds
                         signal["max_chase_bps"] = max_chase_bps
+                        if signal["entry_time_ms"] < self.session_floor_ms:
+                            signal["suppressed_reason"] = "STARTUP_HISTORICAL_SIGNAL"
+                            suppressed_signals.append(signal)
+                            continue
+                        if not signal.get("entry_price"):
+                            signal["suppressed_reason"] = "MISSING_ENTRY_PRICE"
+                            suppressed_signals.append(signal)
+                            continue
                         if entry_lag_seconds > max_entry_lag_seconds:
                             signal["suppressed_reason"] = "STALE_ENTRY"
                             signal["status"] = "SUPPRESSED_STALE_ENTRY"
@@ -266,6 +289,7 @@ class SignalService:
                             suppressed_signals.append(signal)
                             continue
                         signal["status"] = "PAPER_OPEN_PLANNED"
+                        signal["delivery_status"] = "PENDING"
                         signals.append(signal)
                         active_assets.add(signal["asset"])
                         existing_signal_ids.add(signal_id)
@@ -278,17 +302,29 @@ class SignalService:
                 except Exception as exc:
                     results.append({"symbol": symbol, "timeframe": timeframe, "status": "ERROR", "error": str(exc)})
                     self.store.record_error(f"{symbol} {timeframe}: {exc}")
+            existing_events = {event.get("event_id") for event in state_before.get("market_events", [])}
+            fresh_events = [e for e in pulse["events"] if e["event_id"] not in existing_events and e["expires_at_ms"] >= evaluated_ms and e["candle_close_time_ms"] >= self.session_floor_ms]
+            events = fresh_events[:env_int("MAX_MARKET_PULSE_EVENTS_PER_SCAN", 4, 1)]
+            previous_ms = state_before.get("last_scan", {}).get("scan_started_ms")
             scan = {
                 "strategy_id": STRATEGY_ID,
                 "paper_only": True,
                 "scanned_utc": scan_started_utc,
+                "scan_started_ms": scan_started_ms,
+                "session_floor_utc": iso_from_ms(self.session_floor_ms) if self.session_floor_ms else None,
+                "completed_utc": iso_from_ms(evaluated_ms),
+                "scan_duration_seconds": round(time.monotonic() - started_monotonic, 3),
+                "scan_gap_seconds": (scan_started_ms - previous_ms) / 1000 if previous_ms else None,
+                "new_market_events": events,
+                "new_market_event_count": len(events),
+                "pulse_groups": pulse["groups"],
                 "groups": results,
                 "new_signals": signals,
                 "new_signal_count": len(signals),
                 "suppressed_signals": suppressed_signals,
                 "suppressed_signal_count": len(suppressed_signals),
             }
-            state = self.store.record_scan(scan, signals)
+            state = self.store.record_scan(scan, signals, events, now_ms=evaluated_ms)
             return {"scan": scan, "state": state}
 
 
@@ -323,17 +359,22 @@ class Handler(BaseHTTPRequestHandler):
                     "strategy_id": STRATEGY_ID,
                     "paper_only": True,
                     "last_scan_utc": state.get("last_scan_utc"),
-                    "routes": ["/health", "/status", "/signals/latest", "/scan", "/spec"],
+                    "routes": ["/health", "/status", "/signals/latest", "/events/latest", "/scan", "/spec"],
                 }
             )
             return
         if parsed.path == "/status":
             self.send_json(SERVICE.store.load())
             return
-        if parsed.path == "/signals/latest":
+        if parsed.path in {"/signals/latest", "/events/latest"}:
             state = SERVICE.store.load()
-            limit = int(parse_qs(parsed.query).get("limit", ["20"])[0])
-            self.send_json({"signals": state.get("signals", [])[-limit:]})
+            try:
+                limit = min(max(int(parse_qs(parsed.query).get("limit", ["20"])[0]), 1), 500)
+            except ValueError:
+                self.send_json({"error": "limit must be an integer"}, HTTPStatus.BAD_REQUEST)
+                return
+            key = "signals" if parsed.path == "/signals/latest" else "market_events"
+            self.send_json({key: state.get(key, [])[-limit:]})
             return
         if parsed.path == "/scan":
             token = os.getenv("SCAN_TOKEN")
@@ -345,7 +386,7 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(scan_notify_once(heartbeat_interval_seconds=heartbeat_interval))
             return
         if parsed.path == "/spec":
-            from .strategy import CANDIDATES, R24A_CONTEXT_MARKETS, R24A_SCAN_MARKETS
+            from .strategy import CANDIDATES
 
             self.send_json(
                 {
@@ -353,9 +394,18 @@ class Handler(BaseHTTPRequestHandler):
                     "portfolio_id": PORTFOLIO_ID,
                     "portfolio_name": PORTFOLIO_NAME,
                     "paper_only": True,
-                    "scan_markets": [f"{symbol} {timeframe}" for symbol, timeframe in R24A_SCAN_MARKETS],
-                    "context_markets": [f"{symbol} {timeframe}" for symbol, timeframe in R24A_CONTEXT_MARKETS],
-                    "sleeves": ["r24a_bnb_quality_long", "r24a_btc_1h_pullback_observation", "r24a_taker_flow_quality"],
+                    "release_id": PULSE_ID,
+                    "market_pulse": {
+                        "engine_id": PULSE_ID, "watch_only": True,
+                        "markets": [f"{s} {tf}" for s, tf in PULSE_MARKETS],
+                        "directions": ["LONG", "SHORT"],
+                        "max_close_to_notify_seconds": MAX_PULSE_LAG_SECONDS,
+                        "thresholds_fraction": THRESHOLDS,
+                        "performance_metrics": None,
+                    },
+                    "scan_markets": [f"{symbol} {timeframe}" for symbol, timeframe in R26A_SCAN_MARKETS],
+                    "context_markets": [f"{symbol} {timeframe}" for symbol, timeframe in R26A_CONTEXT_MARKETS],
+                    "sleeves": sorted({candidate.sleeve_id for candidate in CANDIDATES}),
                     "entry_model": "NEXT_OPEN",
                     "risk_fraction": 0.25,
                     "max_positions_per_sleeve": 4,
@@ -426,11 +476,66 @@ def send_startup_message(scan_interval_seconds: int, heartbeat_interval_seconds:
         )
 
 
+def deliver_pending(service: SignalService, telegram: TelegramSender) -> None:
+    with service.lock:
+        state = service.store.load()
+        for collection, key, formatter in (
+            ("signals", "signal_id", format_signal_message),
+            ("market_events", "event_id", format_market_pulse_message),
+        ):
+            for item in state.get(collection, []):
+                if item.get("delivery_status") != "PENDING":
+                    continue
+                item_id = item[key]
+                at_ms = now_ms()
+                expiry = item.get("expires_at_ms") if collection == "market_events" else int(item["entry_time_ms"]) + int(item["max_entry_lag_seconds"]) * 1000
+                if at_ms > expiry:
+                    service.store.record_delivery(collection, item_id, "EXPIRED")
+                    continue
+                if not telegram.configured:
+                    continue
+                try:
+                    if collection == "signals":
+                        ticker = service.client.ticker_price(item["symbol"])
+                        at_ms = now_ms()
+                        price = float(ticker["price"])
+                        quote_ms = int(ticker["time"])
+                        if not math.isfinite(price) or price <= 0 or not -5000 <= at_ms - quote_ms <= 30000:
+                            raise ValueError("invalid_or_stale_quote")
+                        move = (price / float(item["entry_price"]) - 1) * 10000
+                        if item["side"] == "SHORT":
+                            move = (float(item["entry_price"]) / price - 1) * 10000
+                        if at_ms > expiry or move > float(item["max_chase_bps"]):
+                            service.store.record_delivery(collection, item_id, "EXPIRED" if at_ms > expiry else "SUPPRESSED_CHASE_AT_SEND")
+                            continue
+                        item.update(market_price_at_scan=price, entry_price_move_bps=move,
+                                    quote_time_utc=iso_from_ms(quote_ms), entry_lag_seconds=(at_ms-int(item["entry_time_ms"]))/1000)
+                    else:
+                        item["freshness_lag_seconds"] = (at_ms - item["candle_close_time_ms"]) / 1000
+                    item["notify_time_utc"] = iso_from_ms(at_ms)
+                    response = telegram.send_message(formatter(item))
+                    if not response.get("ok"):
+                        raise RuntimeError("telegram_not_acknowledged")
+                    service.store.record_delivery(collection, item_id, "SENT", updates=item)
+                    print(json.dumps({"event": "telegram_delivery", "id": item_id, "ok": True}), flush=True)
+                except Exception as exc:
+                    # Store the error class; HTTP exceptions can contain bot-token URLs.
+                    service.store.record_delivery(collection, item_id, "PENDING", error=type(exc).__name__)
+                    print(json.dumps({"event": "telegram_delivery", "id": item_id, "ok": False, "error": type(exc).__name__}), flush=True)
+
+
 def scan_notify_once(*, heartbeat_interval_seconds: int, force_heartbeat: bool = False) -> dict[str, Any]:
+    with NOTIFY_LOCK:
+        return _scan_notify_once(heartbeat_interval_seconds=heartbeat_interval_seconds, force_heartbeat=force_heartbeat)
+
+
+def _scan_notify_once(*, heartbeat_interval_seconds: int, force_heartbeat: bool = False) -> dict[str, Any]:
     global LAST_HEARTBEAT_SENT
     telegram = TelegramSender()
     heartbeat_enabled = env_enabled("TELEGRAM_HEARTBEAT_ENABLED")
     scan_result = SERVICE.scan_once()
+    deliver_pending(SERVICE, telegram)
+    scan_result["state"] = SERVICE.store.load()
     scan_summary = compact_scan(scan_result)
     print(json.dumps(scan_summary, sort_keys=True), flush=True)
 
@@ -459,47 +564,17 @@ def scan_notify_once(*, heartbeat_interval_seconds: int, force_heartbeat: bool =
                     flush=True,
                 )
 
-    for item in notifiable_signals(scan_result):
-        print(json.dumps({"event": "paper_signal", **item}, sort_keys=True), flush=True)
-        try:
-            telegram_result = telegram.send_message(format_signal_message(item))
-            print(
-                json.dumps(
-                    {
-                        "event": "telegram_send",
-                        "time_utc": now_iso(),
-                        "ok": telegram_result.get("ok", False),
-                        "skipped": telegram_result.get("skipped", False),
-                        "reason": telegram_result.get("reason"),
-                        "signal_id": item.get("signal_id"),
-                    },
-                    sort_keys=True,
-                ),
-                flush=True,
-            )
-        except Exception as exc:
-            print(
-                json.dumps(
-                    {
-                        "event": "telegram_error",
-                        "time_utc": now_iso(),
-                        "error": str(exc),
-                        "signal_id": item.get("signal_id"),
-                    },
-                    sort_keys=True,
-                ),
-                flush=True,
-            )
     return scan_result
 
 
 def background_loop(interval_seconds: int, heartbeat_interval_seconds: int) -> None:
     while True:
+        started = time.monotonic()
         try:
             scan_notify_once(heartbeat_interval_seconds=heartbeat_interval_seconds)
         except Exception as exc:
             SERVICE.store.record_error(f"background scan: {exc}")
-        time.sleep(interval_seconds)
+        time.sleep(max(1.0, interval_seconds - (time.monotonic() - started)))
 
 
 def main() -> None:

@@ -7,8 +7,8 @@ from pathlib import Path
 from paper_signal_bot.storage import JsonStore
 from paper_signal_bot.strategy import (
     INTERVAL_MS,
-    R24A_CONTEXT_MARKETS,
-    R24A_SCAN_MARKETS,
+    R26A_CONTEXT_MARKETS,
+    R26A_SCAN_MARKETS,
     STRATEGY_ID,
     candidate_groups,
     evaluate_latest,
@@ -73,7 +73,7 @@ class FakeClient:
         self._premium_rows = premium_rows
 
     def klines(self, symbol: str, interval: str, limit: int = 220) -> list[list]:
-        return self._rows_by_symbol[symbol][-limit:]
+        return self._rows_by_symbol.get((symbol, interval), self._rows_by_symbol.get(symbol, []))[-limit:]
 
     def premium_index_klines(self, symbol: str, interval: str, limit: int = 100) -> list[list]:
         return self._premium_rows[-limit:]
@@ -90,7 +90,7 @@ class StrategyTests(unittest.TestCase):
         self.assertGreater(prior_zscore(values, 20, 20), 1.0)
 
     def test_breadth_router_emits_bnb_4h_long_signal(self) -> None:
-        start = 1_700_000_000_000
+        start = 1_699_992_000_000
         rows_by_symbol = {
             "BTCUSDT": trending_rows(start, base=100.0, step=1.0),
             "ETHUSDT": trending_rows(start, base=200.0, step=1.5),
@@ -114,20 +114,21 @@ class StrategyTests(unittest.TestCase):
         signal = result["signals"][0]
         self.assertEqual(signal["strategy_id"], STRATEGY_ID)
         self.assertEqual(signal["side"], "LONG")
-        self.assertEqual(signal["sleeve_id"], "r24a_bnb_quality_long")
+        self.assertEqual(signal["sleeve_id"], "r26a_bnb_quality_long")
         self.assertEqual(signal["risk_fraction"], 0.25)
         self.assertGreaterEqual(signal["features"]["market_breadth_count"], 2)
 
-    def test_candidate_groups_include_r24a_markets(self) -> None:
+    def test_candidate_groups_include_r26a_markets(self) -> None:
         groups = candidate_groups()
-        for market in R24A_SCAN_MARKETS:
+        for market in R26A_SCAN_MARKETS:
             self.assertIn(market, groups)
         self.assertIn(("ETHUSDT", "1h"), groups)
         self.assertIn(("BTCUSDT", "1h"), groups)
-        self.assertNotIn(("SOLUSDT", "4h"), groups)
-        self.assertIn(("SOLUSDT", "1h"), R24A_CONTEXT_MARKETS)
+        self.assertIn(("SOLUSDT", "4h"), groups)
+        self.assertNotIn(("SOLUSDT", "15m"), groups)
+        self.assertIn(("SOLUSDT", "1h"), R26A_CONTEXT_MARKETS)
 
-    def test_telegram_message_is_r24a_paper_signal(self) -> None:
+    def test_telegram_message_is_r26a_paper_signal(self) -> None:
         signal = {
             "symbol": "BTCUSDT",
             "side": "LONG",
@@ -143,7 +144,7 @@ class StrategyTests(unittest.TestCase):
             "entry_lag_seconds": 90,
             "max_entry_lag_seconds": 600,
             "max_chase_bps": 40.0,
-            "sleeve_id": "r24a_bnb_quality_long",
+            "sleeve_id": "r26a_bnb_quality_long",
             "risk_fraction": 0.25,
             "candidate": {"candidate_id": "breadth_breakout_BTC", "hold_bars": 12, "family": "breadth_breakout"},
             "features": {
@@ -155,17 +156,18 @@ class StrategyTests(unittest.TestCase):
                 "market_directional_mean": 0.021,
                 "quote_volume_prior_z_20": 0.5,
                 "volz_min": -0.75,
-                "sleeve_id": "r24a_bnb_quality_long",
+                "sleeve_id": "r26a_bnb_quality_long",
                 "risk_fraction": 0.25,
             },
         }
         text = format_signal_message(signal)
         self.assertIn("🟢🔺 <b>PAPER LONG — BTCUSDT</b> 🔺🟢", text)
         self.assertIn("✅ <b>LIVE PAPER SIGNAL</b>", text)
-        self.assertIn("🧩 Sleeve: <code>r24a_bnb_quality_long</code>", text)
+        self.assertIn("🧩 Sleeve: <code>r26a_bnb_quality_long</code>", text)
         self.assertIn("• Notify time: <b>2026-08-20 04:01 UTC | VN 2026-08-20 11:01</b>", text)
         self.assertIn("• Entry time: <b>2026-08-20 04:00 UTC | VN 2026-08-20 11:00</b>", text)
-        self.assertIn("• Signal time: <b>2026-08-20 00:00 UTC | VN 2026-08-20 07:00</b>", text)
+        self.assertIn("• Candle open: <b>2026-08-20 00:00 UTC | VN 2026-08-20 07:00</b>", text)
+        self.assertIn("• Current: <code>100.2500</code>", text)
         self.assertIn("• Entry age: <code>1m</code> | Max lag: <code>10m</code>", text)
         self.assertIn("• Move since entry: <code>+25.0 bps</code> | Max chase: <code>+40.0 bps</code>", text)
         self.assertIn("📊 <b>SIGNAL QUALITY</b>", text)
@@ -177,10 +179,10 @@ class StrategyTests(unittest.TestCase):
             scan_interval_seconds=300,
             heartbeat_interval_seconds=3600,
         )
-        self.assertIn("💞📡 <b>R24A STRICT QUALITY BOT STARTUP — MARKET WATCH ACTIVE</b>", startup)
+        self.assertIn("💞📡 <b>R26A QUALITY CORE BOT STARTUP — MARKET WATCH ACTIVE</b>", startup)
         self.assertIn("📌 Mode: <b>PAPER SIGNAL ONLY</b>", startup)
         self.assertIn("BTCUSDT 1h, 4h", startup)
-        self.assertNotIn("SOLUSDT 4h", startup)
+        self.assertIn("SOLUSDT 4h", startup)
         self.assertIn("🔒 <b>SIGNAL ONLY / NO AUTO-TRADE</b>", startup)
 
         heartbeat = format_heartbeat_message(
@@ -221,7 +223,7 @@ class StrategyTests(unittest.TestCase):
                 ],
             }
         )
-        self.assertIn("💞📡 <b>R24A STRICT QUALITY BOT HEARTBEAT — MARKET WATCH ACTIVE</b>", heartbeat)
+        self.assertIn("💞📡 <b>R26A QUALITY CORE BOT HEARTBEAT — MARKET WATCH ACTIVE</b>", heartbeat)
         self.assertIn("<b>BTCUSDT 4h</b>", heartbeat)
         self.assertIn("• Rules scanned: <b>6</b>", heartbeat)
         self.assertIn("• Breadth: <code>3/4</code> >= <code>2</code>", heartbeat)
@@ -231,7 +233,7 @@ class StrategyTests(unittest.TestCase):
         self.assertIn("🛡️ <b>SAFETY</b>", heartbeat)
 
     def test_service_dedupes_same_signal_across_scans(self) -> None:
-        start = 1_700_000_000_000
+        start = 1_699_992_000_000
         rows_by_symbol = {
             "BTCUSDT": trending_rows(start, base=100.0, step=1.0),
             "ETHUSDT": trending_rows(start, base=200.0, step=1.5),
@@ -255,7 +257,7 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual(second["scan"]["new_signals"], [])
 
     def test_service_suppresses_stale_entry_signal(self) -> None:
-        start = 1_700_000_000_000
+        start = 1_699_992_000_000
         rows_by_symbol = {
             "BTCUSDT": trending_rows(start, base=100.0, step=1.0),
             "ETHUSDT": trending_rows(start, base=200.0, step=1.5),

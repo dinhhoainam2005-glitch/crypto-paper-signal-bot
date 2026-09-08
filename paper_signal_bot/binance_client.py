@@ -45,6 +45,9 @@ class BinanceFuturesClient:
     def klines(self, symbol: str, interval: str, limit: int = 200) -> list[list[Any]]:
         return self._get("/fapi/v1/klines", {"symbol": symbol, "interval": interval, "limit": limit})
 
+    def ticker_price(self, symbol: str) -> dict[str, Any]:
+        return self._get("/fapi/v2/ticker/price", {"symbol": symbol})
+
     def premium_index_klines(self, symbol: str, interval: str, limit: int = 80) -> list[list[Any]]:
         return self._get("/fapi/v1/premiumIndexKlines", {"symbol": symbol, "interval": interval, "limit": limit})
 

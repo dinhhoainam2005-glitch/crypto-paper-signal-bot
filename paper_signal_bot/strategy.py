@@ -7,27 +7,31 @@ from statistics import fmean, pstdev
 from typing import Any
 
 
-STRATEGY_ID = "R24A_STRICT_QUALITY_R15C_BNB_PAPER_OBSERVATION"
-PORTFOLIO_ID = "r24a_strict_quality_r15c_bnb_btc1h"
-PORTFOLIO_NAME = "R24A_STRICT_QUALITY"
+STRATEGY_ID = "R26A_QUALITY_CORE_R25A_PULSE_PAPER_OBSERVATION"
+PORTFOLIO_ID = "quality_expand_size_18_mp4_rf0p25_6a716699f3"
+PORTFOLIO_NAME = "R26A_QUALITY_CORE_PLUS_PULSE"
 PORTFOLIO_METRICS = {
-    "frozen_trades_per_week": 2.6932409012131715,
-    "frozen_profit_factor": 2.2103362716997457,
-    "frozen_sharpe": 3.1979629571993073,
-    "frozen_win_rate": 0.5990990990990991,
-    "frozen_max_drawdown_pct": -3.8681097689361232,
-    "validation_trades_per_week": 3.2513661202185795,
-    "validation_profit_factor": 1.647840361185066,
-    "validation_sharpe": 2.2928328185987907,
-    "validation_win_rate": 0.5705882352941176,
-    "validation_max_drawdown_pct": -4.030025712781116,
-    "recent_trades_per_week": 1.835129618246978,
-    "recent_profit_factor": 2.6210082160582755,
-    "recent_sharpe": 2.8422933141488884,
-    "recent_win_rate": 0.4444444444444444,
-    "recent_max_drawdown_pct": -0.928838751019978,
+    "quality_status": "QUALITY_GATE_PASS",
+    "trade_stream_count": 18,
+    "runtime_candidate_count": 27,
+    "frozen_trades_per_week": 5.604852686308492,
+    "frozen_profit_factor": 1.6083268426843635,
+    "frozen_sharpe": 2.833620892600266,
+    "frozen_win_rate": 0.5562770562770563,
+    "frozen_max_drawdown_pct": -9.132704618939592,
+    "validation_trades_per_week": 6.923497267759563,
+    "validation_profit_factor": 1.640590491443226,
+    "validation_sharpe": 3.4883953260609037,
+    "validation_win_rate": 0.5414364640883977,
+    "validation_max_drawdown_pct": -8.517373035267417,
+    "recent_trades_per_week": 4.6073245577930555,
+    "recent_profit_factor": 11.370874166299346,
+    "recent_sharpe": 8.972151261334778,
+    "recent_win_rate": 0.7777777777777778,
+    "recent_max_drawdown_pct": -1.0805708516469004,
 }
 INTERVAL_MS = {
+    "15m": 15 * 60 * 1000,
     "1h": 60 * 60 * 1000,
     "4h": 4 * 60 * 60 * 1000,
 }
@@ -94,7 +98,7 @@ CANDIDATES: tuple[Candidate, ...] = (
         hold_bars=12,
         params={"breadth_min": 0.008, "breadth_n": 3, "leader_required": False, "market_min": 0.0026666666666666666, "regime_lb": 6, "ret1_min": 0.003, "signal_lb": 3, "signal_min": 0.004, "volz_min": -0.75},
         selection_score=96.39932140563236,
-        sleeve_id="r24a_bnb_quality_long",
+        sleeve_id="r26a_bnb_quality_long",
     ),
     candidate(
         candidate_id="breadth_momentum_BNB_4h_LONG_h12_ad92d46d33",
@@ -104,7 +108,7 @@ CANDIDATES: tuple[Candidate, ...] = (
         hold_bars=12,
         params={"breadth_min": 0.008, "breadth_n": 3, "leader_required": False, "market_min": 0.0026666666666666666, "regime_lb": 6, "ret1_min": 0.003, "signal_lb": 3, "signal_min": 0.004, "volz_min": 0.0},
         selection_score=96.39932140563236,
-        sleeve_id="r24a_bnb_quality_long",
+        sleeve_id="r26a_bnb_quality_long",
     ),
     candidate(
         candidate_id="breadth_momentum_BNB_4h_LONG_h12_720f915a97",
@@ -114,7 +118,47 @@ CANDIDATES: tuple[Candidate, ...] = (
         hold_bars=12,
         params={"breadth_min": 0.018, "breadth_n": 2, "leader_required": False, "market_min": 0.005999999999999999, "regime_lb": 12, "ret1_min": 0.0, "signal_lb": 6, "signal_min": 0.009, "volz_min": -0.75},
         selection_score=92.316029776684,
-        sleeve_id="r24a_bnb_quality_long",
+        sleeve_id="r26a_bnb_quality_long",
+    ),
+    candidate(
+        candidate_id="breadth_breakout_BNB_4h_LONG_h12_45899086a2",
+        asset="BNB",
+        direction="LONG",
+        family="breadth_breakout",
+        hold_bars=12,
+        params={"breadth_min": 0.008, "breadth_n": 2, "buffer": 0.0, "lb": 6, "market_min": 0.0026666666666666666, "regime_lb": 6, "volz_min": -0.75},
+        selection_score=93.18087466829262,
+        sleeve_id="r26a_bnb_quality_long",
+    ),
+    candidate(
+        candidate_id="breadth_momentum_BTC_4h_LONG_h12_c0613ac7dc",
+        asset="BTC",
+        direction="LONG",
+        family="breadth_momentum",
+        hold_bars=12,
+        params={"breadth_min": 0.008, "breadth_n": 2, "leader_required": False, "market_min": 0.0026666666666666666, "regime_lb": 6, "ret1_min": 0.003, "signal_lb": 3, "signal_min": 0.008, "volz_min": -0.75},
+        selection_score=93.30010235031834,
+        sleeve_id="r26a_btc_4h_quality_long",
+    ),
+    candidate(
+        candidate_id="breadth_momentum_ETH_4h_LONG_h12_0023b0aa49",
+        asset="ETH",
+        direction="LONG",
+        family="breadth_momentum",
+        hold_bars=12,
+        params={"breadth_min": 0.008, "breadth_n": 3, "leader_required": False, "market_min": 0.0026666666666666666, "regime_lb": 6, "ret1_min": 0.0, "signal_lb": 3, "signal_min": 0.004, "volz_min": -0.75},
+        selection_score=95.72879728242482,
+        sleeve_id="r26a_eth_4h_quality_long",
+    ),
+    candidate(
+        candidate_id="breadth_momentum_ETH_4h_LONG_h12_3f251dc585",
+        asset="ETH",
+        direction="LONG",
+        family="breadth_momentum",
+        hold_bars=12,
+        params={"breadth_min": 0.008, "breadth_n": 3, "leader_required": False, "market_min": 0.0026666666666666666, "regime_lb": 6, "ret1_min": 0.003, "signal_lb": 3, "signal_min": 0.008, "volz_min": -0.75},
+        selection_score=94.80428797559038,
+        sleeve_id="r26a_eth_4h_quality_long",
     ),
     candidate(
         candidate_id="breadth_pullback_reclaim_BTC_1h_LONG_h12_c933124895",
@@ -125,7 +169,7 @@ CANDIDATES: tuple[Candidate, ...] = (
         hold_bars=12,
         params={"asset_regime_min": 0.006, "breadth_min": 0.006, "breadth_n": 2, "market_min": 0.002, "pullback_min": 0.018, "regime_lb": 24, "signal_lb": 6},
         selection_score=78.8001425145812,
-        sleeve_id="r24a_btc_1h_pullback_observation",
+        sleeve_id="r26a_btc_1h_pullback_observation",
     ),
     candidate(
         candidate_id="breadth_pullback_reclaim_BTC_1h_LONG_h12_5ca3f75ebb",
@@ -136,7 +180,7 @@ CANDIDATES: tuple[Candidate, ...] = (
         hold_bars=12,
         params={"asset_regime_min": 0.012, "breadth_min": 0.012, "breadth_n": 2, "market_min": 0.004, "pullback_min": 0.018, "regime_lb": 24, "signal_lb": 6},
         selection_score=78.8001425145812,
-        sleeve_id="r24a_btc_1h_pullback_observation",
+        sleeve_id="r26a_btc_1h_pullback_observation",
     ),
     candidate(
         candidate_id="breadth_pullback_reclaim_BTC_1h_LONG_h12_7f16f9c924",
@@ -147,7 +191,7 @@ CANDIDATES: tuple[Candidate, ...] = (
         hold_bars=12,
         params={"asset_regime_min": 0.006, "breadth_min": 0.006, "breadth_n": 3, "market_min": 0.002, "pullback_min": 0.018, "regime_lb": 24, "signal_lb": 6},
         selection_score=77.56937328381196,
-        sleeve_id="r24a_btc_1h_pullback_observation",
+        sleeve_id="r26a_btc_1h_pullback_observation",
     ),
     candidate(
         candidate_id="breadth_pullback_reclaim_BTC_1h_LONG_h12_b9ff12b4cf",
@@ -158,7 +202,67 @@ CANDIDATES: tuple[Candidate, ...] = (
         hold_bars=12,
         params={"asset_regime_min": 0.012, "breadth_min": 0.012, "breadth_n": 3, "market_min": 0.004, "pullback_min": 0.018, "regime_lb": 24, "signal_lb": 6},
         selection_score=77.56937328381196,
-        sleeve_id="r24a_btc_1h_pullback_observation",
+        sleeve_id="r26a_btc_1h_pullback_observation",
+    ),
+    candidate(
+        candidate_id="breadth_pullback_reclaim_SOL_4h_LONG_h6_58330d2582",
+        asset="SOL",
+        direction="LONG",
+        family="breadth_pullback_reclaim",
+        hold_bars=6,
+        params={"asset_regime_min": 0.008, "breadth_min": 0.008, "breadth_n": 3, "market_min": 0.0026666666666666666, "pullback_min": 0.025, "regime_lb": 12, "signal_lb": 6},
+        selection_score=56.505230273080535,
+        sleeve_id="r26a_sol_4h_pullback_observation",
+    ),
+    candidate(
+        candidate_id="breadth_pullback_reclaim_SOL_4h_LONG_h12_4481e3a8c2",
+        asset="SOL",
+        direction="LONG",
+        family="breadth_pullback_reclaim",
+        hold_bars=12,
+        params={"asset_regime_min": 0.008, "breadth_min": 0.008, "breadth_n": 2, "market_min": 0.0026666666666666666, "pullback_min": 0.055, "regime_lb": 12, "signal_lb": 6},
+        selection_score=55.62637217427383,
+        sleeve_id="r26a_sol_4h_pullback_observation",
+    ),
+    candidate(
+        candidate_id="breadth_pullback_reclaim_SOL_4h_LONG_h12_636660ae3b",
+        asset="SOL",
+        direction="LONG",
+        family="breadth_pullback_reclaim",
+        hold_bars=12,
+        params={"asset_regime_min": 0.018, "breadth_min": 0.018, "breadth_n": 2, "market_min": 0.005999999999999999, "pullback_min": 0.055, "regime_lb": 12, "signal_lb": 6},
+        selection_score=55.62637217427383,
+        sleeve_id="r26a_sol_4h_pullback_observation",
+    ),
+    candidate(
+        candidate_id="breadth_pullback_reclaim_SOL_4h_LONG_h12_7a535fa2dd",
+        asset="SOL",
+        direction="LONG",
+        family="breadth_pullback_reclaim",
+        hold_bars=12,
+        params={"asset_regime_min": 0.008, "breadth_min": 0.008, "breadth_n": 3, "market_min": 0.0026666666666666666, "pullback_min": 0.055, "regime_lb": 12, "signal_lb": 6},
+        selection_score=54.959689282708905,
+        sleeve_id="r26a_sol_4h_pullback_observation",
+    ),
+    candidate(
+        candidate_id="breadth_pullback_reclaim_SOL_4h_LONG_h12_1123546e4a",
+        asset="SOL",
+        direction="LONG",
+        family="breadth_pullback_reclaim",
+        hold_bars=12,
+        params={"asset_regime_min": 0.018, "breadth_min": 0.018, "breadth_n": 3, "market_min": 0.005999999999999999, "pullback_min": 0.055, "regime_lb": 12, "signal_lb": 6},
+        selection_score=54.959689282708905,
+        sleeve_id="r26a_sol_4h_pullback_observation",
+    ),
+    candidate(
+        candidate_id="breadth_pullback_reclaim_SOL_4h_LONG_h6_9b4b50c243",
+        asset="SOL",
+        direction="LONG",
+        family="breadth_pullback_reclaim",
+        hold_bars=6,
+        params={"asset_regime_min": 0.018, "breadth_min": 0.018, "breadth_n": 3, "market_min": 0.005999999999999999, "pullback_min": 0.025, "regime_lb": 12, "signal_lb": 6},
+        selection_score=54.89765854721969,
+        sleeve_id="r26a_sol_4h_pullback_observation",
     ),
     candidate(
         candidate_id="r15c_ETH_4h_LONG_lb12_h3_b0p001_vz1p0_f0p05",
@@ -168,7 +272,7 @@ CANDIDATES: tuple[Candidate, ...] = (
         hold_bars=3,
         params={"buffer": 0.001, "flow_thr": 0.05, "lb": 12, "quality_realized_vol_24_min": 0.005616411766518594, "quality_volz_min": 1.659151276879225, "volz_min": 1.0},
         selection_score=160.0,
-        sleeve_id="r24a_taker_flow_quality",
+        sleeve_id="r26a_taker_flow_quality",
     ),
     candidate(
         candidate_id="r15c_ETH_4h_LONG_lb12_h3_b0p0_vz1p0_f0p05",
@@ -178,7 +282,7 @@ CANDIDATES: tuple[Candidate, ...] = (
         hold_bars=3,
         params={"buffer": 0.0, "flow_thr": 0.05, "lb": 12, "quality_realized_vol_24_min": 0.005616411766518594, "quality_volz_min": 1.659151276879225, "volz_min": 1.0},
         selection_score=159.5,
-        sleeve_id="r24a_taker_flow_quality",
+        sleeve_id="r26a_taker_flow_quality",
     ),
     candidate(
         candidate_id="r15c_ETH_4h_LONG_lb6_h3_b0p001_vz1p0_f0p05",
@@ -188,7 +292,7 @@ CANDIDATES: tuple[Candidate, ...] = (
         hold_bars=3,
         params={"buffer": 0.001, "flow_thr": 0.05, "lb": 6, "quality_realized_vol_24_min": 0.005616411766518594, "quality_volz_min": 1.659151276879225, "volz_min": 1.0},
         selection_score=159.0,
-        sleeve_id="r24a_taker_flow_quality",
+        sleeve_id="r26a_taker_flow_quality",
     ),
     candidate(
         candidate_id="r15c_ETH_4h_LONG_lb6_h3_b0p0_vz1p0_f0p05",
@@ -198,7 +302,7 @@ CANDIDATES: tuple[Candidate, ...] = (
         hold_bars=3,
         params={"buffer": 0.0, "flow_thr": 0.05, "lb": 6, "quality_realized_vol_24_min": 0.005616411766518594, "quality_volz_min": 1.659151276879225, "volz_min": 1.0},
         selection_score=158.5,
-        sleeve_id="r24a_taker_flow_quality",
+        sleeve_id="r26a_taker_flow_quality",
     ),
     candidate(
         candidate_id="r15c_ETH_1h_SHORT_lb24_h12_b0p0_vz1p0_f0p15",
@@ -209,7 +313,7 @@ CANDIDATES: tuple[Candidate, ...] = (
         hold_bars=12,
         params={"buffer": 0.0, "flow_thr": 0.15, "lb": 24, "quality_realized_vol_24_min": 0.005616411766518594, "quality_volz_min": 1.659151276879225, "volz_min": 1.0},
         selection_score=158.0,
-        sleeve_id="r24a_taker_flow_quality",
+        sleeve_id="r26a_taker_flow_quality",
     ),
     candidate(
         candidate_id="r15c_ETH_1h_SHORT_lb24_h12_b0p0_vz0p5_f0p15",
@@ -220,7 +324,7 @@ CANDIDATES: tuple[Candidate, ...] = (
         hold_bars=12,
         params={"buffer": 0.0, "flow_thr": 0.15, "lb": 24, "quality_realized_vol_24_min": 0.005616411766518594, "quality_volz_min": 1.659151276879225, "volz_min": 0.5},
         selection_score=157.5,
-        sleeve_id="r24a_taker_flow_quality",
+        sleeve_id="r26a_taker_flow_quality",
     ),
     candidate(
         candidate_id="r15c_ETH_1h_SHORT_lb24_h12_b0p001_vz1p0_f0p15",
@@ -231,7 +335,7 @@ CANDIDATES: tuple[Candidate, ...] = (
         hold_bars=12,
         params={"buffer": 0.001, "flow_thr": 0.15, "lb": 24, "quality_realized_vol_24_min": 0.005616411766518594, "quality_volz_min": 1.659151276879225, "volz_min": 1.0},
         selection_score=157.0,
-        sleeve_id="r24a_taker_flow_quality",
+        sleeve_id="r26a_taker_flow_quality",
     ),
     candidate(
         candidate_id="r15c_BTC_4h_LONG_lb6_h3_b0p001_vz1p0_f0p05",
@@ -241,7 +345,7 @@ CANDIDATES: tuple[Candidate, ...] = (
         hold_bars=3,
         params={"buffer": 0.001, "flow_thr": 0.05, "lb": 6, "quality_realized_vol_24_min": 0.005616411766518594, "quality_volz_min": 1.659151276879225, "volz_min": 1.0},
         selection_score=156.5,
-        sleeve_id="r24a_taker_flow_quality",
+        sleeve_id="r26a_taker_flow_quality",
     ),
     candidate(
         candidate_id="r15c_ETH_1h_SHORT_lb24_h4_b0p0_vz0p5_f0p15",
@@ -252,7 +356,7 @@ CANDIDATES: tuple[Candidate, ...] = (
         hold_bars=4,
         params={"buffer": 0.0, "flow_thr": 0.15, "lb": 24, "quality_realized_vol_24_min": 0.005616411766518594, "quality_volz_min": 1.659151276879225, "volz_min": 0.5},
         selection_score=156.0,
-        sleeve_id="r24a_taker_flow_quality",
+        sleeve_id="r26a_taker_flow_quality",
     ),
     candidate(
         candidate_id="r15c_BTC_4h_LONG_lb6_h3_b0p0_vz1p0_f0p05",
@@ -262,15 +366,19 @@ CANDIDATES: tuple[Candidate, ...] = (
         hold_bars=3,
         params={"buffer": 0.0, "flow_thr": 0.05, "lb": 6, "quality_realized_vol_24_min": 0.005616411766518594, "quality_volz_min": 1.659151276879225, "volz_min": 1.0},
         selection_score=155.5,
-        sleeve_id="r24a_taker_flow_quality",
+        sleeve_id="r26a_taker_flow_quality",
     ),
 )
 
-R24A_SCAN_MARKETS = tuple(dict.fromkeys((item.symbol, item.timeframe) for item in CANDIDATES))
-R24A_CONTEXT_MARKETS = tuple((symbol, timeframe) for timeframe in ("1h", "4h") for symbol in SYMBOL_BY_ASSET.values())
-R23B_SCAN_MARKETS = R24A_SCAN_MARKETS
-R23B_CONTEXT_MARKETS = R24A_CONTEXT_MARKETS
-R22C_MARKETS = R24A_SCAN_MARKETS
+R26A_SCAN_MARKETS = tuple(dict.fromkeys((item.symbol, item.timeframe) for item in CANDIDATES))
+R26A_CONTEXT_MARKETS = tuple((symbol, timeframe) for timeframe in ("1h", "4h") for symbol in SYMBOL_BY_ASSET.values())
+
+# Backward-compatible aliases for older tests/scripts in this research repo.
+R24A_SCAN_MARKETS = R26A_SCAN_MARKETS
+R24A_CONTEXT_MARKETS = R26A_CONTEXT_MARKETS
+R23B_SCAN_MARKETS = R26A_SCAN_MARKETS
+R23B_CONTEXT_MARKETS = R26A_CONTEXT_MARKETS
+R22C_MARKETS = R26A_SCAN_MARKETS
 
 
 def utc_now_ms() -> int:
@@ -416,7 +524,7 @@ def market_breadth(
             continue
         closed = closed_rows(rows, timeframe, now_ms=now_ms)
         located = latest_by_open(closed, open_time)
-        if located is None:
+        if located is None or located[1]["open_time"] != open_time:
             continue
         index, _row = located
         closes = [item["close"] for item in closed]
@@ -763,7 +871,9 @@ def evaluate_latest(
         "premium_closed_bars": len(premium_closed),
         "candidate_count": len(candidates),
         "latest_closed_bar_utc": ms_to_iso(latest["open_time"]),
+        "latest_candle_close_utc": ms_to_iso(latest["open_time"] + INTERVAL_MS[timeframe]),
         "features": {
+            **snapshot,
             "quote_volume_prior_z_20": snapshot.get("quote_volume_prior_z_20"),
             "market_breadth_count": snapshot.get("market_breadth_count"),
             "market_breadth_assets": snapshot.get("market_breadth_assets"),

@@ -1,6 +1,6 @@
 # Crypto Paper Signal Bot
 
-Paper-only web service for the R24A strict-quality signal router.
+Paper-only web service for the R26A quality-core signal router, with R25A market-pulse watches.
 
 ## Status
 
@@ -13,14 +13,40 @@ This repository is research-to-paper only.
 
 Current paper strategy:
 
-- Strategy: `R24A_STRICT_QUALITY_R15C_BNB_PAPER_OBSERVATION`
-- Signal markets: `BTCUSDT 1h/4h`, `ETHUSDT 1h/4h`, `BNBUSDT 4h`
+- Strategy: `R26A_QUALITY_CORE_R25A_PULSE_PAPER_OBSERVATION`
+- Signal markets: `BTCUSDT 1h/4h`, `ETHUSDT 1h/4h`, `SOLUSDT 4h`, `BNBUSDT 4h`
 - Context markets: BTC/ETH/SOL/BNB on 1h and 4h for market breadth checks
-- Directions: quality-filtered BNB trend LONG, BTC 1h pullback observation, and R15C BTC/ETH taker-flow quality candidates
+- Directions: quality-filtered BTC/ETH/SOL/BNB LONG sleeves plus R15C ETH 1h SHORT taker-flow quality candidates
 - Gate: breadth-confirmed momentum/pullback triggers plus strict R15C volume/flow/realized-vol filters
 - Risk model: paper signal risk fraction `0.25` per position, max 4 positions per sleeve
-- Research status: R24A quality-first tightening selected for paper observation only
+- Research status: R26A quality-core expansion selected for paper observation only
 - Freshness guard: suppress paper trade alerts when entry is older than 10 minutes or price has already moved more than 40 bps in the signal direction
+
+Reported R26A quality-gate metrics:
+
+| Sample | Trades/week | PF | Sharpe | Win | Max DD % |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Frozen | 5.605 | 1.608 | 2.834 | 55.6% | -9.13 |
+| Validation | 6.923 | 1.641 | 3.488 | 54.1% | -8.52 |
+| Recent | 4.607 | 11.371 | 8.972 | 77.8% | -1.08 |
+
+R25A watches BTC/ETH/SOL/BNB on 15m, 1h and 4h in both directions. These are
+closed-candle impulse alerts, labelled `WATCH ONLY`, with no entry, target,
+position or profitability claim. They do not change R26A's backtest metrics.
+Each alert expires 120 seconds after candle close. A sudden move can already be
+partly or fully over before the candle closes; the detector cannot catch every move.
+
+The scanner fetches 12 kline feeds with at most four concurrent requests. Unused
+premium/open-interest diagnostics no longer delay decisions. `/status` includes
+scan duration, scan gap, per-feed freshness and pulse state. Telegram displays
+candle open, close and notification times separately. Trade prices are checked
+again using a fresh ticker immediately before sending.
+
+Pending deliveries are retried until expiry and marked `SENT` only after Telegram
+acknowledges them. Signal IDs and pulse IDs are deduplicated separately in the local
+ledger. If local state is lost, the new process skips candles predating its first
+scan instead of replaying old alerts. Telegram does not offer an idempotency key:
+an accepted send followed by a lost response can still be duplicated on retry.
 
 ## Local Run
 
@@ -59,9 +85,16 @@ Useful routes:
 - `/health`: lightweight uptime endpoint
 - `/status`: latest stored bot state
 - `/signals/latest`: recent paper signals
+- `/events/latest`: recent market watches with delivery status
 - `/scan`: manually trigger a scan and Telegram notification pipeline, optionally protected by `SCAN_TOKEN`
 
-Render Free web services can spin down when idle. This repo includes `.github/workflows/render-keepalive.yml`, which pings `/health` every 5 minutes so the web service can keep running its internal scanner like a worker. You can also ping `/scan?token=<your scan token>` externally if you want the ping itself to trigger each scan.
+Render Free web services can spin down after 15 minutes without inbound traffic.
+The `.github/workflows/render-keepalive.yml` schedule requests `/scan` every five
+minutes so each keepalive also runs the Telegram notification pipeline, but scheduled
+jobs can be delayed; this does not guarantee worker-grade continuous operation or
+delivery latency. Local state is ephemeral on Render Free and can be lost on
+restart/redeploy. `/health` checks HTTP liveness; use `/status` to inspect actual
+scan freshness. See https://render.com/docs/free .
 
 Required environment variables:
 
@@ -73,6 +106,8 @@ MAX_INTERNAL_SCAN_INTERVAL_SECONDS=60
 MAX_SIGNAL_ENTRY_LAG_SECONDS=600
 MAX_SIGNAL_CHASE_BPS=40
 MAX_SIGNALS_RETAINED=500
+MAX_MARKET_EVENTS_RETAINED=500
+MAX_MARKET_PULSE_EVENTS_PER_SCAN=4
 TELEGRAM_ENABLED=true
 TELEGRAM_STARTUP_ENABLED=true
 TELEGRAM_HEARTBEAT_ENABLED=true
@@ -95,3 +130,16 @@ For local web-service smoke test:
 $env:DISABLE_BACKGROUND_SCAN="1"
 python -m paper_signal_bot.web
 ```
+
+## Verification
+
+```powershell
+python -m unittest -v tests.test_strategy tests.test_market_pulse
+python -m research.r25a_market_audit
+```
+
+The audit downloads public Binance USD-M Futures candles into `data/r25a_audit`
+and writes `report.json`. It compares September 3-4, 2026 (Vietnam calendar days)
+against R24A raw eligibility and the production R25A detector. It models a scan
+at close +60s and +120s with four watches per scan. It does not reproduce historical
+Telegram delivery, fill prices, profitability or all-market-cycle robustness.

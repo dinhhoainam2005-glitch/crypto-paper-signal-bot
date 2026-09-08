@@ -15,6 +15,7 @@ class JsonStore:
     def __init__(self, path: str | Path | None = None, max_signals: int | None = None) -> None:
         self.path = Path(path or os.getenv("STATE_PATH") or "data/paper_state.json")
         self.max_signals = int(max_signals or os.getenv("MAX_SIGNALS_RETAINED") or "500")
+        self.max_events = max(100, int(os.getenv("MAX_MARKET_EVENTS_RETAINED", "500")))
 
     def load(self) -> dict[str, Any]:
         if not self.path.is_file():
@@ -44,13 +45,13 @@ class JsonStore:
         tmp.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
         tmp.replace(self.path)
 
-    def record_scan(self, scan: dict[str, Any], new_signals: list[dict[str, Any]]) -> dict[str, Any]:
+    def record_scan(self, scan: dict[str, Any], new_signals: list[dict[str, Any]], new_market_events: list[dict[str, Any]] | None = None, *, now_ms: int | None = None) -> dict[str, Any]:
         state = self.load()
         state["last_scan_utc"] = now_iso()
         state["scan_count"] = int(state.get("scan_count", 0)) + 1
         state["last_scan"] = scan
 
-        now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+        now_ms = now_ms if now_ms is not None else int(datetime.now(timezone.utc).timestamp() * 1000)
         active = [
             item
             for item in state.get("active_positions", [])
@@ -62,10 +63,31 @@ class JsonStore:
                 continue
             active.append(signal)
             state.setdefault("signals", []).append(signal)
+            existing_ids.add(signal.get("signal_id"))
+        event_ids = {item.get("event_id") for item in state.get("market_events", [])}
+        for event in new_market_events or []:
+            if event["event_id"] not in event_ids:
+                state.setdefault("market_events", []).append(event)
+                event_ids.add(event["event_id"])
+        state["market_events"] = state.get("market_events", [])[-self.max_events:]
         state["active_positions"] = active
         state["signals"] = state.get("signals", [])[-self.max_signals :]
         self.save(state)
         return state
+
+    def record_delivery(self, collection: str, item_id: str, status: str, error: str | None = None, updates: dict[str, Any] | None = None) -> None:
+        state = self.load()
+        key = "event_id" if collection == "market_events" else "signal_id"
+        for item in state.get(collection, []):
+            if item.get(key) == item_id:
+                item.update(updates or {})
+                item.update(delivery_status=status, delivery_updated_utc=now_iso())
+                if error:
+                    item["delivery_error"] = error
+                break
+        if collection == "signals" and status in {"EXPIRED", "SUPPRESSED_CHASE_AT_SEND"}:
+            state["active_positions"] = [p for p in state.get("active_positions", []) if p.get("signal_id") != item_id]
+        self.save(state)
 
     def record_error(self, message: str) -> dict[str, Any]:
         state = self.load()
