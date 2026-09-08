@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from paper_signal_bot.market_pulse import PULSE_MARKETS, THRESHOLDS, evaluate_market_pulses
+from paper_signal_bot.market_pulse import MAX_PULSE_LAG_SECONDS, PULSE_MARKETS, THRESHOLDS, evaluate_market_pulses
 from paper_signal_bot.storage import JsonStore
 from paper_signal_bot.strategy import INTERVAL_MS
 from paper_signal_bot.telegram import format_heartbeat_message, format_market_pulse_message
@@ -39,7 +39,7 @@ class MarketPulseTests(unittest.TestCase):
     def test_open_candle_never_creates_event_and_expired_not_replayed(self):
         rows = market_rows()
         self.assertEqual(evaluate_market_pulses(rows, AT-1)["events"], [])
-        self.assertEqual(evaluate_market_pulses(rows, AT+121000)["events"], [])
+        self.assertEqual(evaluate_market_pulses(rows, AT + (MAX_PULSE_LAG_SECONDS + 1) * 1000)["events"], [])
 
     def test_missing_stale_invalid_and_nan_feeds_not_used_for_breadth(self):
         for bad in ("missing", "gap", "stale", "nan"):
@@ -62,7 +62,7 @@ class MarketPulseTests(unittest.TestCase):
             service.client = FakeClient(market_rows(), [])
             service.store = JsonStore(Path(tmp)/"state.json")
             first = service.scan_once(now_ms_override=AT+60000)
-            self.assertEqual(first["scan"]["new_market_event_count"], 4)
+            self.assertEqual(first["scan"]["new_market_event_count"], 12)
             # New service process with the same persisted ledger.
             second_service = SignalService()
             second_service.client = service.client
@@ -72,6 +72,7 @@ class MarketPulseTests(unittest.TestCase):
             fourth = second_service.scan_once(now_ms_override=AT+63000)
             self.assertEqual(len(third["state"]["market_events"]), 12)
             self.assertEqual(fourth["scan"]["new_market_event_count"], 0)
+            self.assertEqual(second["scan"]["new_market_event_count"], 0)
             self.assertEqual(second["state"]["active_positions"], [])
             self.assertEqual(len({e["event_id"] for e in third["state"]["market_events"]}), 12)
 
@@ -82,7 +83,7 @@ class MarketPulseTests(unittest.TestCase):
             event = evaluate_market_pulses(market_rows(), AT+60000)["events"][0]
             service.store.record_scan({}, [], [event])
             telegram = Mock(configured=True)
-            telegram.send_message.side_effect = [RuntimeError("network"), {"ok":True}]
+            telegram.send_message.side_effect = [RuntimeError("network"), {"ok": True}, {"ok": True}]
             with patch("paper_signal_bot.web.now_ms", return_value=AT+61000):
                 deliver_pending(service, telegram)
                 self.assertEqual(service.store.load()["market_events"][0]["delivery_status"], "PENDING")
@@ -94,7 +95,13 @@ class MarketPulseTests(unittest.TestCase):
             service.store.record_scan({}, [], [event])
             with patch("paper_signal_bot.web.now_ms", return_value=AT+121000):
                 deliver_pending(service, telegram)
-            self.assertEqual(telegram.send_message.call_count, 2)
+            self.assertEqual(telegram.send_message.call_count, 3)
+            self.assertEqual(service.store.load()["market_events"][-1]["delivery_status"], "SENT")
+            event["event_id"] += "-very-expired"
+            service.store.record_scan({}, [], [event])
+            with patch("paper_signal_bot.web.now_ms", return_value=AT + (MAX_PULSE_LAG_SECONDS + 1) * 1000):
+                deliver_pending(service, telegram)
+            self.assertEqual(telegram.send_message.call_count, 3)
             self.assertEqual(service.store.load()["market_events"][-1]["delivery_status"], "EXPIRED")
 
     def test_trade_price_rechecked_at_send(self):

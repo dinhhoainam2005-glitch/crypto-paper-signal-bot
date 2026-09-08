@@ -36,6 +36,7 @@ LAST_HEARTBEAT_SENT = 0.0
 DEFAULT_SCAN_INTERVAL_SECONDS = 60
 DEFAULT_MAX_SIGNAL_ENTRY_LAG_SECONDS = 600
 DEFAULT_MAX_SIGNAL_CHASE_BPS = 40.0
+DEFAULT_MAX_MARKET_PULSE_EVENTS_PER_SCAN = 12
 
 
 def now_ms() -> int:
@@ -304,7 +305,7 @@ class SignalService:
                     self.store.record_error(f"{symbol} {timeframe}: {exc}")
             existing_events = {event.get("event_id") for event in state_before.get("market_events", [])}
             fresh_events = [e for e in pulse["events"] if e["event_id"] not in existing_events and e["expires_at_ms"] >= evaluated_ms and e["candle_close_time_ms"] >= self.session_floor_ms]
-            events = fresh_events[:env_int("MAX_MARKET_PULSE_EVENTS_PER_SCAN", 4, 1)]
+            events = fresh_events[:env_int("MAX_MARKET_PULSE_EVENTS_PER_SCAN", DEFAULT_MAX_MARKET_PULSE_EVENTS_PER_SCAN, 1)]
             previous_ms = state_before.get("last_scan", {}).get("scan_started_ms")
             scan = {
                 "strategy_id": STRATEGY_ID,

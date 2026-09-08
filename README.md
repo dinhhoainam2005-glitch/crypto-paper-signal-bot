@@ -33,7 +33,7 @@ Reported R26A quality-gate metrics:
 R25A watches BTC/ETH/SOL/BNB on 15m, 1h and 4h in both directions. These are
 closed-candle impulse alerts, labelled `WATCH ONLY`, with no entry, target,
 position or profitability claim. They do not change R26A's backtest metrics.
-Each alert expires 120 seconds after candle close. A sudden move can already be
+Each alert expires 10 minutes after candle close. A sudden move can already be
 partly or fully over before the candle closes; the detector cannot catch every move.
 
 The scanner fetches 12 kline feeds with at most four concurrent requests. Unused
@@ -107,7 +107,8 @@ MAX_SIGNAL_ENTRY_LAG_SECONDS=600
 MAX_SIGNAL_CHASE_BPS=40
 MAX_SIGNALS_RETAINED=500
 MAX_MARKET_EVENTS_RETAINED=500
-MAX_MARKET_PULSE_EVENTS_PER_SCAN=4
+MAX_MARKET_PULSE_LAG_SECONDS=600
+MAX_MARKET_PULSE_EVENTS_PER_SCAN=12
 TELEGRAM_ENABLED=true
 TELEGRAM_STARTUP_ENABLED=true
 TELEGRAM_HEARTBEAT_ENABLED=true

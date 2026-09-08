@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 from typing import Any
 
 from .strategy import INTERVAL_MS, SYMBOL_BY_ASSET, closed_rows, ms_to_iso, prior_zscore
@@ -9,7 +10,7 @@ from .strategy import INTERVAL_MS, SYMBOL_BY_ASSET, closed_rows, ms_to_iso, prio
 PULSE_ID = "R25A_MARKET_PULSE_V1"
 PULSE_INTERVALS = ("15m", "1h", "4h")
 PULSE_MARKETS = tuple((s, tf) for tf in PULSE_INTERVALS for s in SYMBOL_BY_ASSET.values())
-MAX_PULSE_LAG_SECONDS = 120
+MAX_PULSE_LAG_SECONDS = int(os.getenv("MAX_MARKET_PULSE_LAG_SECONDS", "600"))
 # Initial watch thresholds, not selected from backtest profitability.
 THRESHOLDS = {
     "15m": {"BTCUSDT": .0045, "ETHUSDT": .006, "SOLUSDT": .008, "BNBUSDT": .007},

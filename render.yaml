@@ -22,8 +22,10 @@ services:
         value: "500"
       - key: MAX_MARKET_EVENTS_RETAINED
         value: "500"
+      - key: MAX_MARKET_PULSE_LAG_SECONDS
+        value: "600"
       - key: MAX_MARKET_PULSE_EVENTS_PER_SCAN
-        value: "4"
+        value: "12"
       - key: TELEGRAM_ENABLED
         value: "true"
       - key: TELEGRAM_STARTUP_ENABLED
