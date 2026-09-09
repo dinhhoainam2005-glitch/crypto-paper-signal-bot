@@ -111,10 +111,10 @@ class MacroEventTests(unittest.TestCase):
         )["events"][0]
 
         text = format_macro_event_message(alert)
-        self.assertIn("R28A MACRO RISK WATCH", text)
-        self.assertIn("WATCH ONLY", text)
-        self.assertIn("FORECAST / CONSENSUS", text)
-        self.assertIn("CRYPTO PLAYBOOK", text)
+        self.assertIn("R28A THEO DÕI RỦI RO VĨ MÔ", text)
+        self.assertIn("CHỈ THEO DÕI", text)
+        self.assertIn("DỰ BÁO / ĐỒNG THUẬN", text)
+        self.assertIn("KỊCH BẢN CRYPTO", text)
         self.assertNotIn("Entry:", text)
         self.assertNotIn("TP1", text)
 

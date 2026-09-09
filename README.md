@@ -8,7 +8,7 @@ This repository is research-to-paper only.
 
 - Live trading: disabled
 - Exchange order placement: not implemented
-- Telegram alerts: paper notifications only
+- Telegram alerts: Vietnamese paper notifications only
 - Render target: Python web service with an internal paper-scan loop
 
 Current paper strategy:

@@ -161,17 +161,17 @@ class StrategyTests(unittest.TestCase):
             },
         }
         text = format_signal_message(signal)
-        self.assertIn("🟢🔺 <b>PAPER LONG — BTCUSDT</b> 🔺🟢", text)
-        self.assertIn("✅ <b>LIVE PAPER SIGNAL</b>", text)
+        self.assertIn("🟢🔺 <b>TÍN HIỆU PAPER LONG (MUA) — BTCUSDT</b> 🔺🟢", text)
+        self.assertIn("✅ <b>TÍN HIỆU PAPER MỚI</b>", text)
         self.assertIn("🧩 Sleeve: <code>r26a_bnb_quality_long</code>", text)
-        self.assertIn("• Notify time: <b>2026-08-20 04:01 UTC | VN 2026-08-20 11:01</b>", text)
-        self.assertIn("• Entry time: <b>2026-08-20 04:00 UTC | VN 2026-08-20 11:00</b>", text)
-        self.assertIn("• Candle open: <b>2026-08-20 00:00 UTC | VN 2026-08-20 07:00</b>", text)
-        self.assertIn("• Current: <code>100.2500</code>", text)
-        self.assertIn("• Entry age: <code>1m</code> | Max lag: <code>10m</code>", text)
-        self.assertIn("• Move since entry: <code>+25.0 bps</code> | Max chase: <code>+40.0 bps</code>", text)
-        self.assertIn("📊 <b>SIGNAL QUALITY</b>", text)
-        self.assertIn("🔒 <b>PAPER ONLY / NO AUTO-TRADE</b>", text)
+        self.assertIn("• Thời điểm gửi tín hiệu: <b>2026-08-20 04:01 UTC | VN 2026-08-20 11:01</b>", text)
+        self.assertIn("• Thời điểm vào giả định: <b>2026-08-20 04:00 UTC | VN 2026-08-20 11:00</b>", text)
+        self.assertIn("• Mở nến tín hiệu: <b>2026-08-20 00:00 UTC | VN 2026-08-20 07:00</b>", text)
+        self.assertIn("• Giá hiện tại: <code>100.2500</code>", text)
+        self.assertIn("• Độ trễ sau điểm vào: <code>1m</code> | Trễ tối đa: <code>10m</code>", text)
+        self.assertIn("• Biến động sau điểm vào: <code>+25.0 bps</code> | Mức chase tối đa: <code>+40.0 bps</code>", text)
+        self.assertIn("📊 <b>CHẤT LƯỢNG TÍN HIỆU</b>", text)
+        self.assertIn("🔒 <b>CHỈ PAPER / KHÔNG TỰ ĐẶT LỆNH</b>", text)
 
     def test_startup_and_heartbeat_messages(self) -> None:
         startup = format_startup_message(
@@ -179,11 +179,11 @@ class StrategyTests(unittest.TestCase):
             scan_interval_seconds=300,
             heartbeat_interval_seconds=3600,
         )
-        self.assertIn("💞📡 <b>R26A QUALITY CORE BOT STARTUP — MARKET WATCH ACTIVE</b>", startup)
-        self.assertIn("📌 Mode: <b>PAPER SIGNAL ONLY</b>", startup)
+        self.assertIn("💞📡 <b>BOT R26A LÕI CHẤT LƯỢNG KHỞI ĐỘNG — ĐANG THEO DÕI THỊ TRƯỜNG</b>", startup)
+        self.assertIn("📌 Chế độ: <b>CHỈ GỬI TÍN HIỆU PAPER</b>", startup)
         self.assertIn("BTCUSDT 1h, 4h", startup)
         self.assertIn("SOLUSDT 4h", startup)
-        self.assertIn("🔒 <b>SIGNAL ONLY / NO AUTO-TRADE</b>", startup)
+        self.assertIn("🔒 <b>CHỈ GỬI TÍN HIỆU / KHÔNG TỰ ĐẶT LỆNH</b>", startup)
 
         heartbeat = format_heartbeat_message(
             {
@@ -223,14 +223,14 @@ class StrategyTests(unittest.TestCase):
                 ],
             }
         )
-        self.assertIn("💞📡 <b>R26A QUALITY CORE BOT HEARTBEAT — MARKET WATCH ACTIVE</b>", heartbeat)
+        self.assertIn("💞📡 <b>BOT R26A LÕI CHẤT LƯỢNG HEARTBEAT — ĐANG THEO DÕI THỊ TRƯỜNG</b>", heartbeat)
         self.assertIn("<b>BTCUSDT 4h</b>", heartbeat)
-        self.assertIn("• Rules scanned: <b>6</b>", heartbeat)
-        self.assertIn("• Breadth: <code>3/4</code> >= <code>2</code>", heartbeat)
+        self.assertIn("• Luật đã quét: <b>6</b>", heartbeat)
+        self.assertIn("• Độ rộng thị trường: <code>3/4</code> >= <code>2</code>", heartbeat)
         self.assertIn("<b>ETHUSDT 1h</b>", heartbeat)
-        self.assertIn("• Flow mode: <code>R15C taker-flow quality</code>", heartbeat)
+        self.assertIn("• Chế độ dòng tiền: <code>R15C taker-flow quality</code>", heartbeat)
         self.assertNotIn("n/a/n/a", heartbeat)
-        self.assertIn("🛡️ <b>SAFETY</b>", heartbeat)
+        self.assertIn("🛡️ <b>AN TOÀN</b>", heartbeat)
 
     def test_service_dedupes_same_signal_across_scans(self) -> None:
         start = 1_699_992_000_000

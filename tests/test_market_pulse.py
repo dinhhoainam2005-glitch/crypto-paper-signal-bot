@@ -134,14 +134,14 @@ class MarketPulseTests(unittest.TestCase):
             {"symbol":"BTCUSDT", "timeframe":"4h", "status":"STALE_DATA", "data_state":"STALE"},
             {"symbol":"ETHUSDT", "timeframe":"1h", "status":"NO_SIGNAL", "data_state":"FRESH"},
         ]})
-        self.assertIn("State: <b>DEGRADED</b>", text)
-        self.assertNotIn("• Data: <b>FRESH</b>", text)
+        self.assertIn("Trạng thái: <b>SUY GIẢM</b>", text)
+        self.assertNotIn("• Dữ liệu: <b>MỚI</b>", text)
 
     def test_watch_format_never_calls_candle_price_current_or_trade_entry(self):
         event = evaluate_market_pulses(market_rows(-1), AT+60000)["events"][0]
         text = format_market_pulse_message(event)
-        self.assertIn("WATCH ONLY", text)
-        self.assertIn("SHORT", text)
+        self.assertIn("CHỈ THEO DÕI", text)
+        self.assertIn("SHORT (BÁN)", text)
         self.assertIn("| VN ", text)
         self.assertNotIn("Entry:", text)
         self.assertNotIn("Current:", text)

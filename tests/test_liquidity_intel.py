@@ -139,11 +139,11 @@ class LiquidityIntelTests(unittest.TestCase):
         )["events"][0]
 
         text = format_liquidity_event_message(event)
-        self.assertIn("R27A LIQUIDITY MAP", text)
-        self.assertIn("WATCH ONLY", text)
-        self.assertIn("LIQUIDITY HEATMAP", text)
-        self.assertIn("LIQUIDATION PRESSURE PROXY", text)
-        self.assertIn("HYPERLIQUID MAP", text)
+        self.assertIn("R27A BẢN ĐỒ THANH KHOẢN", text)
+        self.assertIn("CHỈ THEO DÕI", text)
+        self.assertIn("HEATMAP THANH KHOẢN", text)
+        self.assertIn("ƯỚC LƯỢNG ÁP LỰC THANH LÝ", text)
+        self.assertIn("BẢN ĐỒ HYPERLIQUID", text)
         self.assertNotIn("Entry:", text)
         self.assertNotIn("TP1", text)
 
