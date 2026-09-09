@@ -1,6 +1,6 @@
 # Crypto Paper Signal Bot
 
-Paper-only web service for the R26A quality-core signal router, with R25A market-pulse and R27A liquidity-intel watches.
+Paper-only web service for the R26A quality-core signal router, with R25A market-pulse, R27A liquidity-intel and R28A macro-event watches.
 
 ## Status
 
@@ -49,10 +49,25 @@ true Hyperliquid liquidation-event feed or Coinglass/Hyblock-style liquidation
 heatmap can be connected later as a provider if an API key/data subscription is
 available.
 
+R28A Macro Event Watch runs independently from trade entries. It tracks high-impact
+macro events that can move USD liquidity, rates, DXY and crypto beta:
+
+- Federal Reserve FOMC/rate-decision calendar and press-conference windows
+- BLS calendar for CPI, PPI, Employment Situation/NFP and JOLTS
+- BEA release schedule for GDP and Personal Income & Outlays/PCE
+- Census economic-indicator calendar for retail sales and durable goods
+- Cleveland Fed inflation nowcasting for CPI/PCE forecast context
+- Optional Trading Economics consensus forecast if `TRADING_ECONOMICS_API_KEY` is configured
+
+R28A sends `WATCH ONLY` macro-risk alerts at `T-7D`, `T-24H`, `T-6H`, `T-1H`,
+`T-15M` and `LIVE` windows. These alerts do not create entries, exits, TP/SL or
+profitability claims. They are meant to reduce surprise around scheduled macro
+risk and to add forecast/consensus context when reliable data is available.
+
 The scanner fetches 12 kline feeds, then optional R27A depth/OI/Hyperliquid feeds.
 Unused premium diagnostics no longer delay decisions. `/status` includes scan
-duration, scan gap, per-feed freshness, pulse state and liquidity state. Telegram
-displays candle open, close and notification times separately. Trade prices are
+duration, scan gap, per-feed freshness, pulse state, liquidity state and macro
+calendar state. Telegram displays candle open, close and notification times separately. Trade prices are
 checked again using a fresh ticker immediately before sending.
 
 Pending deliveries are retried until expiry and marked `SENT` only after Telegram
@@ -99,6 +114,9 @@ Useful routes:
 - `/status`: latest stored bot state
 - `/signals/latest`: recent paper signals
 - `/events/latest`: recent market watches with delivery status
+- `/liquidity/latest`: recent liquidity-intel watches
+- `/macro/latest`: recent macro-risk watches
+- `/macro/calendar`: current macro calendar known by the bot
 - `/scan`: manually trigger a scan and Telegram notification pipeline, optionally protected by `SCAN_TOKEN`
 
 Render Free web services can spin down after 15 minutes without inbound traffic.
@@ -127,6 +145,13 @@ MAX_LIQUIDITY_EVENT_LAG_SECONDS=600
 MAX_LIQUIDITY_EVENTS_PER_SCAN=4
 LIQUIDITY_ALERT_SCORE_MIN=55
 HYPERLIQUID_API_BASE_URL=https://api.hyperliquid.xyz
+MACRO_EVENT_WATCH_ENABLED=true
+MACRO_CALENDAR_CACHE_SECONDS=3600
+MACRO_LOOKAHEAD_DAYS=45
+MACRO_LOOKBACK_MINUTES=90
+MAX_MACRO_EVENTS_PER_SCAN=6
+MACRO_ALERT_RETRY_MINUTES=90
+TRADING_ECONOMICS_API_KEY=<optional consensus forecast provider>
 TELEGRAM_ENABLED=true
 TELEGRAM_STARTUP_ENABLED=true
 TELEGRAM_HEARTBEAT_ENABLED=true
@@ -153,7 +178,7 @@ python -m paper_signal_bot.web
 ## Verification
 
 ```powershell
-python -m unittest -v tests.test_strategy tests.test_market_pulse tests.test_liquidity_intel
+python -m unittest -v tests.test_strategy tests.test_market_pulse tests.test_liquidity_intel tests.test_macro_events
 python -m research.r25a_market_audit
 ```
 

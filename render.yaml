@@ -36,6 +36,18 @@ services:
         value: "55"
       - key: HYPERLIQUID_API_BASE_URL
         value: https://api.hyperliquid.xyz
+      - key: MACRO_EVENT_WATCH_ENABLED
+        value: "true"
+      - key: MACRO_CALENDAR_CACHE_SECONDS
+        value: "3600"
+      - key: MACRO_LOOKAHEAD_DAYS
+        value: "45"
+      - key: MACRO_LOOKBACK_MINUTES
+        value: "90"
+      - key: MAX_MACRO_EVENTS_PER_SCAN
+        value: "6"
+      - key: MACRO_ALERT_RETRY_MINUTES
+        value: "90"
       - key: TELEGRAM_ENABLED
         value: "true"
       - key: TELEGRAM_STARTUP_ENABLED

@@ -15,6 +15,7 @@ from urllib.parse import parse_qs, urlparse
 from .binance_client import BinanceFuturesClient
 from .hyperliquid_client import HyperliquidClient
 from .liquidity_intel import LIQUIDITY_ID, LIQUIDITY_SYMBOLS, evaluate_liquidity_intel, max_liquidity_event_lag_seconds
+from .macro_events import MACRO_ID, evaluate_macro_calendar, fetch_macro_calendar
 from .storage import JsonStore
 from .market_pulse import MAX_PULSE_LAG_SECONDS, PULSE_ID, PULSE_MARKETS, THRESHOLDS, evaluate_market_pulses
 from .strategy import PORTFOLIO_ID, PORTFOLIO_METRICS, PORTFOLIO_NAME, R26A_CONTEXT_MARKETS, R26A_SCAN_MARKETS, STRATEGY_ID, candidate_groups, evaluate_latest
@@ -26,6 +27,7 @@ from .telegram import (
     format_startup_message,
     format_market_pulse_message,
     format_liquidity_event_message,
+    format_macro_event_message,
     telegram_configured,
 )
 
@@ -41,6 +43,8 @@ DEFAULT_MAX_SIGNAL_ENTRY_LAG_SECONDS = 600
 DEFAULT_MAX_SIGNAL_CHASE_BPS = 40.0
 DEFAULT_MAX_MARKET_PULSE_EVENTS_PER_SCAN = 12
 DEFAULT_MAX_LIQUIDITY_EVENTS_PER_SCAN = 4
+DEFAULT_MAX_MACRO_EVENTS_PER_SCAN = 6
+DEFAULT_MACRO_CALENDAR_CACHE_SECONDS = 3600
 
 
 def now_ms() -> int:
@@ -89,6 +93,14 @@ def effective_liquidity_events_per_scan() -> int:
     return env_int(
         "MAX_LIQUIDITY_EVENTS_PER_SCAN",
         DEFAULT_MAX_LIQUIDITY_EVENTS_PER_SCAN,
+        1,
+    )
+
+
+def effective_macro_events_per_scan() -> int:
+    return env_int(
+        "MAX_MACRO_EVENTS_PER_SCAN",
+        DEFAULT_MAX_MACRO_EVENTS_PER_SCAN,
         1,
     )
 
@@ -151,8 +163,11 @@ def compact_scan(scan_result: dict[str, Any]) -> dict[str, Any]:
         "new_market_event_count": scan.get("new_market_event_count", 0),
         "new_pulse_event_count": scan.get("new_pulse_event_count", 0),
         "new_liquidity_event_count": scan.get("new_liquidity_event_count", 0),
+        "new_macro_event_count": scan.get("new_macro_event_count", 0),
         "pulse_groups": scan.get("pulse_groups", []),
         "liquidity_groups": scan.get("liquidity_groups", []),
+        "macro_groups": scan.get("macro_groups", []),
+        "macro_calendar": scan.get("macro_calendar", []),
         "scan_duration_seconds": scan.get("scan_duration_seconds"),
         "scan_gap_seconds": scan.get("scan_gap_seconds"),
         "groups": groups,
@@ -183,6 +198,18 @@ class SignalService:
         self.context_markets = tuple(dict.fromkeys((*R26A_CONTEXT_MARKETS, *PULSE_MARKETS)))
         self.session_floor_ms: int | None = None
         self.liquidity_enabled = env_enabled("LIQUIDITY_INTEL_ENABLED", "true")
+        self.macro_enabled = env_enabled("MACRO_EVENT_WATCH_ENABLED", "true")
+        self._macro_calendar_cache: dict[str, Any] | None = None
+        self._macro_calendar_cache_until_ms = 0
+
+    def macro_calendar(self, at_ms: int) -> dict[str, Any]:
+        ttl_seconds = env_int("MACRO_CALENDAR_CACHE_SECONDS", DEFAULT_MACRO_CALENDAR_CACHE_SECONDS, 300)
+        if self._macro_calendar_cache is not None and at_ms < self._macro_calendar_cache_until_ms:
+            return self._macro_calendar_cache
+        calendar = fetch_macro_calendar(at_ms)
+        self._macro_calendar_cache = calendar
+        self._macro_calendar_cache_until_ms = at_ms + ttl_seconds * 1000
+        return calendar
 
     @staticmethod
     def active_assets_from_state(state: dict[str, Any], at_ms: int | None = None) -> set[str]:
@@ -269,6 +296,28 @@ class SignalService:
                     now_ms=scan_started_ms,
                     errors=liquidity_errors,
                 )
+            macro = {"engine_id": MACRO_ID, "events": [], "groups": [], "calendar": [], "source_states": []}
+            if self.macro_enabled:
+                try:
+                    macro = evaluate_macro_calendar(self.macro_calendar(scan_started_ms), scan_started_ms)
+                except Exception as exc:
+                    self.store.record_error(f"macro watch: {exc}")
+                    macro = {
+                        "engine_id": MACRO_ID,
+                        "events": [],
+                        "groups": [
+                            {
+                                "status": "ERROR",
+                                "data_state": "DEGRADED",
+                                "candidate_count": 0,
+                                "upcoming_count": 0,
+                                "alert_count": 0,
+                                "error": type(exc).__name__,
+                            }
+                        ],
+                        "calendar": [],
+                        "source_states": [],
+                    }
             snapshots = {(s["symbol"], s["timeframe"]): s for s in pulse["groups"]}
             for (symbol, timeframe), _candidates in self.groups.items():
                 try:
@@ -377,9 +426,16 @@ class SignalService:
                 and e["expires_at_ms"] >= evaluated_ms
                 and e["candle_close_time_ms"] >= self.session_floor_ms
             ]
+            fresh_macro_events = [
+                e
+                for e in macro["events"]
+                if e["event_id"] not in existing_events
+                and e["expires_at_ms"] >= evaluated_ms
+            ]
             pulse_events = fresh_pulse_events[:effective_market_pulse_events_per_scan()]
             liquidity_events = fresh_liquidity_events[:effective_liquidity_events_per_scan()]
-            events = [*pulse_events, *liquidity_events]
+            macro_events = fresh_macro_events[:effective_macro_events_per_scan()]
+            events = [*pulse_events, *liquidity_events, *macro_events]
             previous_ms = state_before.get("last_scan", {}).get("scan_started_ms")
             scan = {
                 "strategy_id": STRATEGY_ID,
@@ -394,8 +450,11 @@ class SignalService:
                 "new_market_event_count": len(events),
                 "new_pulse_event_count": len(pulse_events),
                 "new_liquidity_event_count": len(liquidity_events),
+                "new_macro_event_count": len(macro_events),
                 "pulse_groups": pulse["groups"],
                 "liquidity_groups": liquidity["groups"],
+                "macro_groups": macro["groups"],
+                "macro_calendar": macro["calendar"],
                 "groups": results,
                 "new_signals": signals,
                 "new_signal_count": len(signals),
@@ -437,14 +496,14 @@ class Handler(BaseHTTPRequestHandler):
                     "strategy_id": STRATEGY_ID,
                     "paper_only": True,
                     "last_scan_utc": state.get("last_scan_utc"),
-                    "routes": ["/health", "/status", "/signals/latest", "/events/latest", "/liquidity/latest", "/scan", "/spec"],
+                    "routes": ["/health", "/status", "/signals/latest", "/events/latest", "/liquidity/latest", "/macro/latest", "/macro/calendar", "/scan", "/spec"],
                 }
             )
             return
         if parsed.path == "/status":
             self.send_json(SERVICE.store.load())
             return
-        if parsed.path in {"/signals/latest", "/events/latest", "/liquidity/latest"}:
+        if parsed.path in {"/signals/latest", "/events/latest", "/liquidity/latest", "/macro/latest"}:
             state = SERVICE.store.load()
             try:
                 limit = min(max(int(parse_qs(parsed.query).get("limit", ["20"])[0]), 1), 500)
@@ -459,7 +518,22 @@ class Handler(BaseHTTPRequestHandler):
                 events = [event for event in events if event.get("event_type") == "LIQUIDITY_MAP"]
                 self.send_json({"liquidity_events": events[-limit:]})
                 return
+            if parsed.path == "/macro/latest":
+                events = [event for event in events if event.get("event_type") == "MACRO_EVENT"]
+                self.send_json({"macro_events": events[-limit:]})
+                return
             self.send_json({"market_events": events[-limit:]})
+            return
+        if parsed.path == "/macro/calendar":
+            state = SERVICE.store.load()
+            scan = state.get("last_scan", {})
+            self.send_json(
+                {
+                    "engine_id": MACRO_ID,
+                    "macro_calendar": scan.get("macro_calendar", []),
+                    "macro_groups": scan.get("macro_groups", []),
+                }
+            )
             return
         if parsed.path == "/scan":
             token = os.getenv("SCAN_TOKEN")
@@ -502,6 +576,22 @@ class Handler(BaseHTTPRequestHandler):
                         "markets": list(LIQUIDITY_SYMBOLS),
                         "max_close_to_notify_seconds": max_liquidity_event_lag_seconds(),
                         "max_events_per_scan": effective_liquidity_events_per_scan(),
+                        "performance_metrics": None,
+                    },
+                    "macro_event_watch": {
+                        "engine_id": MACRO_ID,
+                        "enabled": SERVICE.macro_enabled,
+                        "watch_only": True,
+                        "sources": [
+                            "Federal Reserve FOMC calendar",
+                            "BLS economic release calendar",
+                            "BEA release schedule",
+                            "Census economic indicator calendar",
+                            "Cleveland Fed inflation nowcasting",
+                            "Trading Economics consensus forecast when TRADING_ECONOMICS_API_KEY is configured",
+                        ],
+                        "alert_phases": ["T-7D", "T-24H", "T-6H", "T-1H", "T-15M", "LIVE"],
+                        "max_events_per_scan": effective_macro_events_per_scan(),
                         "performance_metrics": None,
                     },
                     "scan_markets": [f"{symbol} {timeframe}" for symbol, timeframe in R26A_SCAN_MARKETS],
@@ -629,6 +719,8 @@ def deliver_pending(service: SignalService, telegram: TelegramSender) -> None:
 def format_event_message(item: dict[str, Any]) -> str:
     if item.get("event_type") == "LIQUIDITY_MAP":
         return format_liquidity_event_message(item)
+    if item.get("event_type") == "MACRO_EVENT":
+        return format_macro_event_message(item)
     return format_market_pulse_message(item)
 
 
@@ -701,6 +793,7 @@ def main() -> None:
                 "scan_interval_seconds": interval,
                 "heartbeat_interval_seconds": heartbeat_interval,
                 "background_scan_enabled": not disable_background,
+                "macro_event_watch_enabled": SERVICE.macro_enabled,
                 "telegram_configured": telegram_configured(),
                 "telegram_startup_enabled": env_enabled("TELEGRAM_STARTUP_ENABLED"),
                 "telegram_heartbeat_enabled": env_enabled("TELEGRAM_HEARTBEAT_ENABLED"),

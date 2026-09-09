@@ -1,4 +1,4 @@
-"""Paper-only signal service for the R26A quality-core router."""
+"""Paper-only signal service for the R26A quality-core router and watch layers."""
 
 __all__ = ["__version__"]
 

@@ -60,6 +60,7 @@ class MarketPulseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             service = SignalService()
             service.liquidity_enabled = False
+            service.macro_enabled = False
             service.client = FakeClient(market_rows(), [])
             service.store = JsonStore(Path(tmp)/"state.json")
             first = service.scan_once(now_ms_override=AT+60000)
@@ -67,6 +68,7 @@ class MarketPulseTests(unittest.TestCase):
             # New service process with the same persisted ledger.
             second_service = SignalService()
             second_service.liquidity_enabled = False
+            second_service.macro_enabled = False
             second_service.client = service.client
             second_service.store = JsonStore(service.store.path)
             second = second_service.scan_once(now_ms_override=AT+61000)
@@ -82,6 +84,7 @@ class MarketPulseTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             service = SignalService()
             service.liquidity_enabled = False
+            service.macro_enabled = False
             service.store = JsonStore(Path(tmp)/"state.json")
             event = evaluate_market_pulses(market_rows(), AT+60000)["events"][0]
             service.store.record_scan({}, [], [event])
@@ -112,6 +115,7 @@ class MarketPulseTests(unittest.TestCase):
             with self.subTest(side=side), tempfile.TemporaryDirectory() as tmp:
                 service = SignalService()
                 service.liquidity_enabled = False
+                service.macro_enabled = False
                 service.store = JsonStore(Path(tmp)/"state.json")
                 signal = {"signal_id":"trade-1", "delivery_status":"PENDING", "symbol":"BTCUSDT",
                           "side":side, "entry_price":100, "entry_time_ms":AT, "max_entry_lag_seconds":600,

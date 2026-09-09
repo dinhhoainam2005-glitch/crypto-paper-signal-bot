@@ -205,6 +205,11 @@ def format_startup_message(*, strategy_id: str, scan_interval_seconds: int, hear
             "• Hyperliquid L2 cross-check",
             "• Liquidity/liquidation proxy | Watch only",
             "",
+            "🗓️ <b>R28A MACRO EVENT WATCH</b>",
+            "• FOMC / CPI / NFP / PCE / GDP / Retail Sales",
+            "• Official calendar + nowcast/consensus when available",
+            "• Macro risk window | Watch only",
+            "",
             "🛡️ <b>SAFETY</b>",
             "• SIGNAL_SEND: <b>ON</b>",
             "• AUTO_TRADE: <b>OFF</b>",
@@ -236,9 +241,12 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
             latest_candle = compact_utc(group.get("latest_candle_close_utc"))
     pulse_groups = scan_summary.get("pulse_groups", [])
     liquidity_groups = scan_summary.get("liquidity_groups", [])
+    macro_groups = scan_summary.get("macro_groups", [])
     all_groups = [*groups, *pulse_groups]
     if liquidity_groups:
         all_groups = [*all_groups, *liquidity_groups]
+    if macro_groups:
+        all_groups = [*all_groups, *macro_groups]
     states = [str(g.get("data_state", "UNKNOWN")) for g in all_groups]
     data_state = "FRESH" if states and all(s == "FRESH" for s in states) else "DEGRADED" if "FRESH" in states else "UNKNOWN"
     state = "OK" if data_state == "FRESH" and all(g.get("status") not in {"ERROR", "INVALID_DATA", "DATA_GAP", "INSUFFICIENT_HISTORY"} for g in all_groups) else "DEGRADED"
@@ -257,6 +265,7 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
         "• New signals: <b>{count}</b>".format(count=esc(scan_summary.get("new_signal_count", 0))),
         "• New pulse alerts: <b>{count}</b> (watch)".format(count=esc(scan_summary.get("new_pulse_event_count", 0))),
         "• Liquidity alerts: <b>{count}</b> (watch)".format(count=esc(scan_summary.get("new_liquidity_event_count", 0))),
+        "• Macro alerts: <b>{count}</b> (watch)".format(count=esc(scan_summary.get("new_macro_event_count", 0))),
         "• Suppressed: <b>{count}</b>".format(count=esc(scan_summary.get("suppressed_signal_count", 0))),
         "• Active positions: <b>{active}</b>".format(active=esc(scan_summary.get("active_position_count", 0))),
         "• Rules scanned: <b>{rules}</b>".format(rules=rules_scanned),
@@ -293,6 +302,35 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
                     price=fmt_float(strong_features.get("binance_wall_price"), 4),
                     distance=fmt_float(strong_features.get("binance_wall_distance_bps"), 1),
                 ),
+            ]
+        )
+    if macro_groups:
+        macro_group = macro_groups[0]
+        source_states = macro_group.get("source_states") or []
+        ready_sources = sum(1 for item in source_states if item.get("status") == "OK")
+        disabled_sources = sum(1 for item in source_states if item.get("status") == "DISABLED")
+        next_event = macro_group.get("next_event") or {}
+        next_line = "n/a"
+        if next_event:
+            next_line = "{priority} {title} | {time}".format(
+                priority=next_event.get("priority", "n/a"),
+                title=next_event.get("title", "n/a"),
+                time=utc_vn_label(next_event.get("event_time_utc")),
+            )
+        lines.extend(
+            [
+                "",
+                "🗓️ <b>MACRO EVENT WATCH</b>",
+                "• R28A sources: <b>{ready}/{total}</b> OK | optional disabled: <b>{disabled}</b>".format(
+                    ready=esc(ready_sources),
+                    total=esc(len(source_states)),
+                    disabled=esc(disabled_sources),
+                ),
+                "• Upcoming tracked: <b>{count}</b> | Alert window: <b>{alerts}</b>".format(
+                    count=esc(macro_group.get("upcoming_count", 0)),
+                    alerts=esc(macro_group.get("alert_count", 0)),
+                ),
+                "• Next: <code>{next}</code>".format(next=esc(next_line)),
             ]
         )
     for group in groups:
@@ -584,6 +622,56 @@ def format_liquidity_event_message(event: dict[str, Any]) -> str:
             ),
             "",
             "🔒 <b>PAPER WATCH / NO AUTO-TRADE</b>",
+            clock_line(event.get("notify_time_utc")),
+        ]
+    )
+
+
+def format_macro_event_message(event: dict[str, Any]) -> str:
+    priority = str(event.get("priority", "MEDIUM")).upper()
+    icon = "🚨" if priority == "CRITICAL" else "🟠" if priority == "HIGH" else "🟡"
+    minutes = event.get("minutes_until")
+    if isinstance(minutes, (int, float)) and minutes < 0:
+        timing = "Released/Live {age} ago".format(age=duration_label(abs(float(minutes)) * 60))
+    elif isinstance(minutes, (int, float)):
+        timing = "In {age}".format(age=duration_label(float(minutes) * 60))
+    else:
+        timing = "n/a"
+    forecast = event.get("forecast_summary") or "No quantified forecast attached yet; official schedule alert only."
+    forecast_sources = event.get("forecast_sources") or []
+    source_line = ", ".join(str(item) for item in forecast_sources) if forecast_sources else event.get("source", "official schedule")
+    return "\n".join(
+        [
+            f"{icon}🗓️ <b>R28A MACRO RISK WATCH — {esc(event.get('title'))}</b>",
+            "━━━━━━━━━━━━━━━━━━━━━━━━",
+            "",
+            "📌 Priority: <b>{priority}</b> | Score: <code>{score}</code> | Phase: <b>{phase}</b>".format(
+                priority=esc(priority),
+                score=esc(event.get("impact_score", "n/a")),
+                phase=esc(event.get("phase", "n/a")),
+            ),
+            "👀 <b>WATCH ONLY | Khong phai lenh vao trade</b>",
+            "",
+            "⏱️ <b>EVENT TIME</b>",
+            "• Time: <b>{time}</b>".format(time=esc(utc_vn_label(event.get("event_time_utc")))),
+            "• Status: <code>{timing}</code>".format(timing=esc(timing)),
+            "• Category: <code>{category}</code>".format(category=esc(event.get("category", "n/a"))),
+            "• Reference: <code>{reference}</code>".format(reference=esc(event.get("reference") or "n/a")),
+            "",
+            "🔮 <b>FORECAST / CONSENSUS</b>",
+            "• {forecast}".format(forecast=esc(forecast)),
+            "• Confidence: <code>{confidence}</code>".format(confidence=esc(event.get("forecast_confidence", "SCHEDULE_ONLY"))),
+            "• Sources: <code>{sources}</code>".format(sources=esc(source_line)),
+            "",
+            "₿ <b>CRYPTO PLAYBOOK</b>",
+            "• Expect volatility expansion, fakeout risk and liquidity sweeps around the release window.",
+            "• Prefer waiting for candle close / liquidity confirmation before treating moves as directional.",
+            "• This layer can override urgency, but it does not create an entry by itself.",
+            "",
+            "🧾 <b>WHY IT MATTERS</b>",
+            "• {rationale}".format(rationale=esc(event.get("rationale", ""))),
+            "",
+            "🔒 <b>MACRO WATCH / NO AUTO-TRADE</b>",
             clock_line(event.get("notify_time_utc")),
         ]
     )
