@@ -49,6 +49,12 @@ true Hyperliquid liquidation-event feed or Coinglass/Hyblock-style liquidation
 heatmap can be connected later as a provider if an API key/data subscription is
 available.
 
+The data client first uses Binance USD-M Futures REST and futures mirror hosts.
+If a cloud IP is temporarily blocked/rate-limited by the futures gateway, public
+spot market data is used as a fallback for klines, order-book depth and ticker
+price so the scanner can keep heartbeat/watch coverage alive. Futures-only data
+such as open-interest history is not fabricated; it is marked degraded when unavailable.
+
 R28A Macro Event Watch runs independently from trade entries. It tracks high-impact
 macro events that can move USD liquidity, rates, DXY and crypto beta:
 
@@ -132,6 +138,8 @@ Required environment variables:
 ```text
 PAPER_ONLY=true
 BINANCE_FAPI_BASE_URL=https://fapi.binance.com
+BINANCE_FAPI_BASE_URLS=https://fapi.binance.com,https://fapi1.binance.com,https://fapi2.binance.com,https://fapi3.binance.com,https://fapi4.binance.com
+BINANCE_SPOT_MARKET_BASE_URL=https://data-api.binance.vision
 SCAN_INTERVAL_SECONDS=60
 MAX_INTERNAL_SCAN_INTERVAL_SECONDS=60
 MAX_SIGNAL_ENTRY_LAG_SECONDS=600
@@ -178,7 +186,7 @@ python -m paper_signal_bot.web
 ## Verification
 
 ```powershell
-python -m unittest -v tests.test_strategy tests.test_market_pulse tests.test_liquidity_intel tests.test_macro_events
+python -m unittest -v tests.test_strategy tests.test_market_pulse tests.test_liquidity_intel tests.test_macro_events tests.test_binance_client
 python -m research.r25a_market_audit
 ```
 

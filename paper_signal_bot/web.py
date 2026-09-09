@@ -554,6 +554,13 @@ class Handler(BaseHTTPRequestHandler):
                     "portfolio_name": PORTFOLIO_NAME,
                     "paper_only": True,
                     "release_id": PULSE_ID,
+                    "data_source_fallback": {
+                        "primary": "Binance USD-M Futures REST",
+                        "futures_mirrors": list(SERVICE.client.base_urls),
+                        "spot_market_fallback": SERVICE.client.spot_market_base_url,
+                        "applies_to": ["klines", "depth", "ticker_price"],
+                        "note": "Used only when the futures gateway returns a retryable ban/rate/network error; futures-only OI remains degraded if unavailable.",
+                    },
                     "market_pulse": {
                         "engine_id": PULSE_ID, "watch_only": True,
                         "markets": [f"{s} {tf}" for s, tf in PULSE_MARKETS],

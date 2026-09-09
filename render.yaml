@@ -10,6 +10,10 @@ services:
         value: "true"
       - key: BINANCE_FAPI_BASE_URL
         value: https://fapi.binance.com
+      - key: BINANCE_FAPI_BASE_URLS
+        value: https://fapi.binance.com,https://fapi1.binance.com,https://fapi2.binance.com,https://fapi3.binance.com,https://fapi4.binance.com
+      - key: BINANCE_SPOT_MARKET_BASE_URL
+        value: https://data-api.binance.vision
       - key: SCAN_INTERVAL_SECONDS
         value: "60"
       - key: MAX_INTERNAL_SCAN_INTERVAL_SECONDS
