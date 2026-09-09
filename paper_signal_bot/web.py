@@ -554,6 +554,7 @@ class Handler(BaseHTTPRequestHandler):
                     "portfolio_name": PORTFOLIO_NAME,
                     "paper_only": True,
                     "release_id": PULSE_ID,
+                    "telegram_language": "vi",
                     "data_source_fallback": {
                         "primary": "Binance USD-M Futures REST",
                         "futures_mirrors": list(SERVICE.client.base_urls),
