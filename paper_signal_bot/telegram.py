@@ -200,6 +200,11 @@ def format_startup_message(*, strategy_id: str, scan_interval_seconds: int, hear
             "• BTC / ETH / SOL / BNB: 15m + 1h + 4h",
             "• LONG + SHORT | Watch only",
             "",
+            "🧲 <b>R27A LIQUIDITY INTEL / WATCH</b>",
+            "• Binance depth + OI + volume",
+            "• Hyperliquid L2 cross-check",
+            "• Liquidity/liquidation proxy | Watch only",
+            "",
             "🛡️ <b>SAFETY</b>",
             "• SIGNAL_SEND: <b>ON</b>",
             "• AUTO_TRADE: <b>OFF</b>",
@@ -230,7 +235,10 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
             latest_dt = parsed
             latest_candle = compact_utc(group.get("latest_candle_close_utc"))
     pulse_groups = scan_summary.get("pulse_groups", [])
+    liquidity_groups = scan_summary.get("liquidity_groups", [])
     all_groups = [*groups, *pulse_groups]
+    if liquidity_groups:
+        all_groups = [*all_groups, *liquidity_groups]
     states = [str(g.get("data_state", "UNKNOWN")) for g in all_groups]
     data_state = "FRESH" if states and all(s == "FRESH" for s in states) else "DEGRADED" if "FRESH" in states else "UNKNOWN"
     state = "OK" if data_state == "FRESH" and all(g.get("status") not in {"ERROR", "INVALID_DATA", "DATA_GAP", "INSUFFICIENT_HISTORY"} for g in all_groups) else "DEGRADED"
@@ -247,7 +255,8 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
         "📊 <b>LAST SCAN</b>",
         "• State: <b>{state}</b>".format(state=esc(state)),
         "• New signals: <b>{count}</b>".format(count=esc(scan_summary.get("new_signal_count", 0))),
-        "• New pulse alerts: <b>{count}</b> (watch)".format(count=esc(scan_summary.get("new_market_event_count", 0))),
+        "• New pulse alerts: <b>{count}</b> (watch)".format(count=esc(scan_summary.get("new_pulse_event_count", 0))),
+        "• Liquidity alerts: <b>{count}</b> (watch)".format(count=esc(scan_summary.get("new_liquidity_event_count", 0))),
         "• Suppressed: <b>{count}</b>".format(count=esc(scan_summary.get("suppressed_signal_count", 0))),
         "• Active positions: <b>{active}</b>".format(active=esc(scan_summary.get("active_position_count", 0))),
         "• Rules scanned: <b>{rules}</b>".format(rules=rules_scanned),
@@ -263,6 +272,29 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
     if pulse_groups:
         fresh = sum(g.get("data_state") == "FRESH" and g.get("status") not in {"INSUFFICIENT_HISTORY", "INVALID_DATA", "DATA_GAP"} for g in pulse_groups)
         lines.insert(-1, f"📡 R25A watch: <b>{fresh}/{len(pulse_groups)} feeds ready</b> | 15m + 1h + 4h | LONG + SHORT")
+    if liquidity_groups:
+        ready = sum(g.get("data_state") == "FRESH" and g.get("status") not in {"DATA_NOT_READY", "ERROR"} for g in liquidity_groups)
+        strongest = max(
+            liquidity_groups,
+            key=lambda group: float((group.get("features") or {}).get("binance_wall_intensity") or 0.0),
+        )
+        strong_features = strongest.get("features") or {}
+        lines.extend(
+            [
+                "",
+                "🧲 <b>LIQUIDITY INTEL</b>",
+                "• R27A feeds: <b>{ready}/{total}</b> ready | Binance depth/OI + Hyperliquid L2".format(
+                    ready=esc(ready),
+                    total=esc(len(liquidity_groups)),
+                ),
+                "• Strongest wall: <b>{symbol}</b> <code>{side}</code> @ <code>{price}</code> | <code>{distance}</code> bps".format(
+                    symbol=esc(strongest.get("symbol", "n/a")),
+                    side=esc(strong_features.get("binance_wall_side", "n/a")),
+                    price=fmt_float(strong_features.get("binance_wall_price"), 4),
+                    distance=fmt_float(strong_features.get("binance_wall_distance_bps"), 1),
+                ),
+            ]
+        )
     for group in groups:
         group_lines = [
             "",
@@ -479,6 +511,101 @@ def format_market_pulse_message(event: dict[str, Any]) -> str:
         "🔒 <b>PAPER WATCH / NO AUTO-TRADE</b>",
         clock_line(event.get("notify_time_utc")),
     ])
+
+
+def format_liquidity_event_message(event: dict[str, Any]) -> str:
+    features = event.get("features") or {}
+    side = str(event.get("side", "")).upper()
+    icon = "🟢📈" if side == "LONG" else "🔴📉" if side == "SHORT" else "🧲"
+    return "\n".join(
+        [
+            f"🧲🔥 <b>R27A LIQUIDITY MAP — {esc(event.get('symbol'))}</b>",
+            "━━━━━━━━━━━━━━━━━━━━━━━━",
+            "",
+            f"{icon} Bias: <b>{esc(side)}</b> | TF: <b>{esc(event.get('timeframe'))}</b>",
+            "👀 <b>WATCH ONLY | Chua phai lenh vao trade</b>",
+            "",
+            "📊 <b>DATA</b>",
+            "• Reason: <code>{reason}</code>".format(reason=esc(event.get("reason", ""))),
+            "• Score: <code>{score}</code> | Confidence: <b>{confidence}</b>".format(
+                score=fmt_float(event.get("score"), 2),
+                confidence=esc(event.get("confidence", "n/a")),
+            ),
+            "• Price: <code>{price}</code> | Move 15m: <code>{move}</code>".format(
+                price=fmt_float(features.get("price"), 4),
+                move=fmt_signed_bps(safe_bps(features.get("return_fraction"))),
+            ),
+            "• Volume z20: <code>{volz}</code> | Taker imbalance: <code>{taker}</code>".format(
+                volz=fmt_float(features.get("volume_z20"), 2),
+                taker=fmt_float(features.get("taker_imbalance"), 3),
+            ),
+            "",
+            "🧱 <b>LIQUIDITY HEATMAP</b>",
+            "• Wall: <code>{side}</code> @ <code>{price}</code>".format(
+                side=esc(features.get("binance_wall_side", "n/a")),
+                price=fmt_float(features.get("binance_wall_price"), 4),
+            ),
+            "• Distance: <code>{distance}</code> bps | Notional: <code>{notional}</code>".format(
+                distance=fmt_float(features.get("binance_wall_distance_bps"), 1),
+                notional=human_usd(features.get("binance_wall_quote")),
+            ),
+            "• Depth 100bps: bid <code>{bid}</code> | ask <code>{ask}</code>".format(
+                bid=human_usd(features.get("binance_bid_depth_100bps")),
+                ask=human_usd(features.get("binance_ask_depth_100bps")),
+            ),
+            "• Book imbalance: <code>{imbalance}</code>".format(
+                imbalance=fmt_float(features.get("binance_imbalance_100bps"), 3),
+            ),
+            "",
+            "💥 <b>LIQUIDATION PRESSURE PROXY</b>",
+            "• State: <code>{state}</code>".format(
+                state=esc(features.get("liquidation_pressure_proxy", "UNKNOWN")),
+            ),
+            "• OI change 12x5m: <code>{oi12}</code>% | last: <code>{oi1}</code>%".format(
+                oi12=fmt_float(features.get("open_interest_change_pct_12"), 2),
+                oi1=fmt_float(features.get("open_interest_change_pct_1"), 2),
+            ),
+            "",
+            "🌊 <b>HYPERLIQUID MAP</b>",
+            "• State: <code>{state}</code> | Mid diff: <code>{diff}</code> bps".format(
+                state=esc(features.get("hyperliquid_state", "n/a")),
+                diff=fmt_float(features.get("hyperliquid_mid_diff_bps"), 1),
+            ),
+            "• HL wall: <code>{side}</code> | Distance: <code>{distance}</code> bps".format(
+                side=esc(features.get("hyperliquid_wall_side", "n/a")),
+                distance=fmt_float(features.get("hyperliquid_wall_distance_bps"), 1),
+            ),
+            "",
+            "• Candle close: <b>{closed}</b>".format(
+                closed=esc(utc_vn_label(event.get("candle_close_time_utc"))),
+            ),
+            "• Notify: <b>{notify}</b>".format(
+                notify=esc(utc_vn_label(event.get("notify_time_utc"))),
+            ),
+            "",
+            "🔒 <b>PAPER WATCH / NO AUTO-TRADE</b>",
+            clock_line(event.get("notify_time_utc")),
+        ]
+    )
+
+
+def safe_bps(value: Any) -> float:
+    try:
+        return float(value) * 10000.0
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def human_usd(value: Any) -> str:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return "n/a"
+    if abs(number) >= 1_000_000:
+        return f"${number / 1_000_000:.2f}M"
+    if abs(number) >= 1_000:
+        return f"${number / 1_000:.1f}K"
+    return f"${number:.0f}"
 
 
 class TelegramSender:

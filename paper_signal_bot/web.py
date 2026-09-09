@@ -13,6 +13,8 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from .binance_client import BinanceFuturesClient
+from .hyperliquid_client import HyperliquidClient
+from .liquidity_intel import LIQUIDITY_ID, LIQUIDITY_SYMBOLS, evaluate_liquidity_intel, max_liquidity_event_lag_seconds
 from .storage import JsonStore
 from .market_pulse import MAX_PULSE_LAG_SECONDS, PULSE_ID, PULSE_MARKETS, THRESHOLDS, evaluate_market_pulses
 from .strategy import PORTFOLIO_ID, PORTFOLIO_METRICS, PORTFOLIO_NAME, R26A_CONTEXT_MARKETS, R26A_SCAN_MARKETS, STRATEGY_ID, candidate_groups, evaluate_latest
@@ -23,6 +25,7 @@ from .telegram import (
     format_signal_message,
     format_startup_message,
     format_market_pulse_message,
+    format_liquidity_event_message,
     telegram_configured,
 )
 
@@ -37,6 +40,7 @@ DEFAULT_SCAN_INTERVAL_SECONDS = 60
 DEFAULT_MAX_SIGNAL_ENTRY_LAG_SECONDS = 600
 DEFAULT_MAX_SIGNAL_CHASE_BPS = 40.0
 DEFAULT_MAX_MARKET_PULSE_EVENTS_PER_SCAN = 12
+DEFAULT_MAX_LIQUIDITY_EVENTS_PER_SCAN = 4
 
 
 def now_ms() -> int:
@@ -77,6 +81,14 @@ def effective_market_pulse_events_per_scan() -> int:
     return env_int(
         "MAX_MARKET_PULSE_EVENTS_PER_SCAN",
         DEFAULT_MAX_MARKET_PULSE_EVENTS_PER_SCAN,
+        1,
+    )
+
+
+def effective_liquidity_events_per_scan() -> int:
+    return env_int(
+        "MAX_LIQUIDITY_EVENTS_PER_SCAN",
+        DEFAULT_MAX_LIQUIDITY_EVENTS_PER_SCAN,
         1,
     )
 
@@ -137,7 +149,10 @@ def compact_scan(scan_result: dict[str, Any]) -> dict[str, Any]:
         "suppressed_signal_count": scan.get("suppressed_signal_count", 0),
         "active_position_count": len(state.get("active_positions", [])),
         "new_market_event_count": scan.get("new_market_event_count", 0),
+        "new_pulse_event_count": scan.get("new_pulse_event_count", 0),
+        "new_liquidity_event_count": scan.get("new_liquidity_event_count", 0),
         "pulse_groups": scan.get("pulse_groups", []),
+        "liquidity_groups": scan.get("liquidity_groups", []),
         "scan_duration_seconds": scan.get("scan_duration_seconds"),
         "scan_gap_seconds": scan.get("scan_gap_seconds"),
         "groups": groups,
@@ -161,11 +176,13 @@ def notifiable_signals(scan_result: dict[str, Any]) -> list[dict[str, Any]]:
 class SignalService:
     def __init__(self) -> None:
         self.client = BinanceFuturesClient()
+        self.hyperliquid_client = HyperliquidClient()
         self.store = JsonStore()
         self.lock = threading.Lock()
         self.groups = candidate_groups()
         self.context_markets = tuple(dict.fromkeys((*R26A_CONTEXT_MARKETS, *PULSE_MARKETS)))
         self.session_floor_ms: int | None = None
+        self.liquidity_enabled = env_enabled("LIQUIDITY_INTEL_ENABLED", "true")
 
     @staticmethod
     def active_assets_from_state(state: dict[str, Any], at_ms: int | None = None) -> set[str]:
@@ -218,6 +235,40 @@ class SignalService:
                         self.store.record_error(f"{key[0]} {key[1]}: {exc}")
             evaluated_ms = scan_started_ms if now_ms_override is not None else now_ms()
             pulse = evaluate_market_pulses(klines_cache, scan_started_ms)
+            liquidity = {"engine_id": LIQUIDITY_ID, "events": [], "groups": []}
+            if self.liquidity_enabled:
+                depth_cache: dict[str, dict[str, Any]] = {}
+                open_interest_cache: dict[str, list[dict[str, Any]]] = {}
+                hyperliquid_cache: dict[str, dict[str, Any]] = {}
+                liquidity_errors: dict[tuple[str, str], str] = {}
+                with ThreadPoolExecutor(max_workers=6) as pool:
+                    liquidity_jobs = {}
+                    for symbol in LIQUIDITY_SYMBOLS:
+                        asset = symbol.replace("USDT", "")
+                        liquidity_jobs[pool.submit(self.client.depth, symbol, 100)] = ("depth", symbol)
+                        liquidity_jobs[pool.submit(self.client.open_interest_hist, symbol, "5m", 30)] = ("open_interest", symbol)
+                        liquidity_jobs[pool.submit(self.hyperliquid_client.l2_book, asset, 5)] = ("hyperliquid", symbol)
+                    for future in as_completed(liquidity_jobs):
+                        kind, symbol = liquidity_jobs[future]
+                        try:
+                            value = future.result()
+                            if kind == "depth":
+                                depth_cache[symbol] = value
+                            elif kind == "open_interest":
+                                open_interest_cache[symbol] = value
+                            else:
+                                hyperliquid_cache[symbol] = value
+                        except Exception as exc:
+                            liquidity_errors[("liquidity", symbol)] = f"{kind}: {exc}"
+                            self.store.record_error(f"liquidity {symbol} {kind}: {exc}")
+                liquidity = evaluate_liquidity_intel(
+                    klines_cache=klines_cache,
+                    depth_cache=depth_cache,
+                    open_interest_cache=open_interest_cache,
+                    hyperliquid_cache=hyperliquid_cache,
+                    now_ms=scan_started_ms,
+                    errors=liquidity_errors,
+                )
             snapshots = {(s["symbol"], s["timeframe"]): s for s in pulse["groups"]}
             for (symbol, timeframe), _candidates in self.groups.items():
                 try:
@@ -312,8 +363,23 @@ class SignalService:
                     results.append({"symbol": symbol, "timeframe": timeframe, "status": "ERROR", "error": str(exc)})
                     self.store.record_error(f"{symbol} {timeframe}: {exc}")
             existing_events = {event.get("event_id") for event in state_before.get("market_events", [])}
-            fresh_events = [e for e in pulse["events"] if e["event_id"] not in existing_events and e["expires_at_ms"] >= evaluated_ms and e["candle_close_time_ms"] >= self.session_floor_ms]
-            events = fresh_events[:effective_market_pulse_events_per_scan()]
+            fresh_pulse_events = [
+                e
+                for e in pulse["events"]
+                if e["event_id"] not in existing_events
+                and e["expires_at_ms"] >= evaluated_ms
+                and e["candle_close_time_ms"] >= self.session_floor_ms
+            ]
+            fresh_liquidity_events = [
+                e
+                for e in liquidity["events"]
+                if e["event_id"] not in existing_events
+                and e["expires_at_ms"] >= evaluated_ms
+                and e["candle_close_time_ms"] >= self.session_floor_ms
+            ]
+            pulse_events = fresh_pulse_events[:effective_market_pulse_events_per_scan()]
+            liquidity_events = fresh_liquidity_events[:effective_liquidity_events_per_scan()]
+            events = [*pulse_events, *liquidity_events]
             previous_ms = state_before.get("last_scan", {}).get("scan_started_ms")
             scan = {
                 "strategy_id": STRATEGY_ID,
@@ -326,7 +392,10 @@ class SignalService:
                 "scan_gap_seconds": (scan_started_ms - previous_ms) / 1000 if previous_ms else None,
                 "new_market_events": events,
                 "new_market_event_count": len(events),
+                "new_pulse_event_count": len(pulse_events),
+                "new_liquidity_event_count": len(liquidity_events),
                 "pulse_groups": pulse["groups"],
+                "liquidity_groups": liquidity["groups"],
                 "groups": results,
                 "new_signals": signals,
                 "new_signal_count": len(signals),
@@ -368,22 +437,29 @@ class Handler(BaseHTTPRequestHandler):
                     "strategy_id": STRATEGY_ID,
                     "paper_only": True,
                     "last_scan_utc": state.get("last_scan_utc"),
-                    "routes": ["/health", "/status", "/signals/latest", "/events/latest", "/scan", "/spec"],
+                    "routes": ["/health", "/status", "/signals/latest", "/events/latest", "/liquidity/latest", "/scan", "/spec"],
                 }
             )
             return
         if parsed.path == "/status":
             self.send_json(SERVICE.store.load())
             return
-        if parsed.path in {"/signals/latest", "/events/latest"}:
+        if parsed.path in {"/signals/latest", "/events/latest", "/liquidity/latest"}:
             state = SERVICE.store.load()
             try:
                 limit = min(max(int(parse_qs(parsed.query).get("limit", ["20"])[0]), 1), 500)
             except ValueError:
                 self.send_json({"error": "limit must be an integer"}, HTTPStatus.BAD_REQUEST)
                 return
-            key = "signals" if parsed.path == "/signals/latest" else "market_events"
-            self.send_json({key: state.get(key, [])[-limit:]})
+            if parsed.path == "/signals/latest":
+                self.send_json({"signals": state.get("signals", [])[-limit:]})
+                return
+            events = state.get("market_events", [])
+            if parsed.path == "/liquidity/latest":
+                events = [event for event in events if event.get("event_type") == "LIQUIDITY_MAP"]
+                self.send_json({"liquidity_events": events[-limit:]})
+                return
+            self.send_json({"market_events": events[-limit:]})
             return
         if parsed.path == "/scan":
             token = os.getenv("SCAN_TOKEN")
@@ -411,6 +487,21 @@ class Handler(BaseHTTPRequestHandler):
                         "max_close_to_notify_seconds": MAX_PULSE_LAG_SECONDS,
                         "max_events_per_scan": effective_market_pulse_events_per_scan(),
                         "thresholds_fraction": THRESHOLDS,
+                        "performance_metrics": None,
+                    },
+                    "liquidity_intel": {
+                        "engine_id": LIQUIDITY_ID,
+                        "enabled": SERVICE.liquidity_enabled,
+                        "watch_only": True,
+                        "sources": [
+                            "Binance USD-M order book depth",
+                            "Binance USD-M open-interest history",
+                            "Binance 15m volume/taker flow",
+                            "Hyperliquid L2 book cross-check",
+                        ],
+                        "markets": list(LIQUIDITY_SYMBOLS),
+                        "max_close_to_notify_seconds": max_liquidity_event_lag_seconds(),
+                        "max_events_per_scan": effective_liquidity_events_per_scan(),
                         "performance_metrics": None,
                     },
                     "scan_markets": [f"{symbol} {timeframe}" for symbol, timeframe in R26A_SCAN_MARKETS],
@@ -491,7 +582,7 @@ def deliver_pending(service: SignalService, telegram: TelegramSender) -> None:
         state = service.store.load()
         for collection, key, formatter in (
             ("signals", "signal_id", format_signal_message),
-            ("market_events", "event_id", format_market_pulse_message),
+            ("market_events", "event_id", format_event_message),
         ):
             for item in state.get(collection, []):
                 if item.get("delivery_status") != "PENDING":
@@ -521,7 +612,8 @@ def deliver_pending(service: SignalService, telegram: TelegramSender) -> None:
                         item.update(market_price_at_scan=price, entry_price_move_bps=move,
                                     quote_time_utc=iso_from_ms(quote_ms), entry_lag_seconds=(at_ms-int(item["entry_time_ms"]))/1000)
                     else:
-                        item["freshness_lag_seconds"] = (at_ms - item["candle_close_time_ms"]) / 1000
+                        if item.get("event_type") == "MARKET_PULSE":
+                            item["freshness_lag_seconds"] = (at_ms - item["candle_close_time_ms"]) / 1000
                     item["notify_time_utc"] = iso_from_ms(at_ms)
                     response = telegram.send_message(formatter(item))
                     if not response.get("ok"):
@@ -532,6 +624,12 @@ def deliver_pending(service: SignalService, telegram: TelegramSender) -> None:
                     # Store the error class; HTTP exceptions can contain bot-token URLs.
                     service.store.record_delivery(collection, item_id, "PENDING", error=type(exc).__name__)
                     print(json.dumps({"event": "telegram_delivery", "id": item_id, "ok": False, "error": type(exc).__name__}), flush=True)
+
+
+def format_event_message(item: dict[str, Any]) -> str:
+    if item.get("event_type") == "LIQUIDITY_MAP":
+        return format_liquidity_event_message(item)
+    return format_market_pulse_message(item)
 
 
 def scan_notify_once(*, heartbeat_interval_seconds: int, force_heartbeat: bool = False) -> dict[str, Any]:

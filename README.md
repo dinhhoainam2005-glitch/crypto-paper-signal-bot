@@ -1,6 +1,6 @@
 # Crypto Paper Signal Bot
 
-Paper-only web service for the R26A quality-core signal router, with R25A market-pulse watches.
+Paper-only web service for the R26A quality-core signal router, with R25A market-pulse and R27A liquidity-intel watches.
 
 ## Status
 
@@ -36,11 +36,24 @@ position or profitability claim. They do not change R26A's backtest metrics.
 Each alert expires 10 minutes after candle close. A sudden move can already be
 partly or fully over before the candle closes; the detector cannot catch every move.
 
-The scanner fetches 12 kline feeds with at most four concurrent requests. Unused
-premium/open-interest diagnostics no longer delay decisions. `/status` includes
-scan duration, scan gap, per-feed freshness and pulse state. Telegram displays
-candle open, close and notification times separately. Trade prices are checked
-again using a fresh ticker immediately before sending.
+R27A Liquidity Intel watches BTC/ETH/SOL/BNB with public market data:
+
+- Binance USD-M order book depth as a near-price liquidity heatmap proxy
+- Binance USD-M open-interest history as a liquidation-pressure proxy
+- Binance 15m volume, range and taker-flow imbalance
+- Hyperliquid L2 book as a cross-venue liquidity map check
+
+R27A alerts are also labelled `WATCH ONLY`. They are not backtested trade entries,
+do not include TP/SL and do not claim to be a vendor-grade liquidation heatmap. A
+true Hyperliquid liquidation-event feed or Coinglass/Hyblock-style liquidation
+heatmap can be connected later as a provider if an API key/data subscription is
+available.
+
+The scanner fetches 12 kline feeds, then optional R27A depth/OI/Hyperliquid feeds.
+Unused premium diagnostics no longer delay decisions. `/status` includes scan
+duration, scan gap, per-feed freshness, pulse state and liquidity state. Telegram
+displays candle open, close and notification times separately. Trade prices are
+checked again using a fresh ticker immediately before sending.
 
 Pending deliveries are retried until expiry and marked `SENT` only after Telegram
 acknowledges them. Signal IDs and pulse IDs are deduplicated separately in the local
@@ -109,6 +122,11 @@ MAX_SIGNALS_RETAINED=500
 MAX_MARKET_EVENTS_RETAINED=500
 MAX_MARKET_PULSE_LAG_SECONDS=600
 MAX_MARKET_PULSE_EVENTS_PER_SCAN=12
+LIQUIDITY_INTEL_ENABLED=true
+MAX_LIQUIDITY_EVENT_LAG_SECONDS=600
+MAX_LIQUIDITY_EVENTS_PER_SCAN=4
+LIQUIDITY_ALERT_SCORE_MIN=55
+HYPERLIQUID_API_BASE_URL=https://api.hyperliquid.xyz
 TELEGRAM_ENABLED=true
 TELEGRAM_STARTUP_ENABLED=true
 TELEGRAM_HEARTBEAT_ENABLED=true
@@ -135,7 +153,7 @@ python -m paper_signal_bot.web
 ## Verification
 
 ```powershell
-python -m unittest -v tests.test_strategy tests.test_market_pulse
+python -m unittest -v tests.test_strategy tests.test_market_pulse tests.test_liquidity_intel
 python -m research.r25a_market_audit
 ```
 

@@ -45,8 +45,17 @@ class BinanceFuturesClient:
     def klines(self, symbol: str, interval: str, limit: int = 200) -> list[list[Any]]:
         return self._get("/fapi/v1/klines", {"symbol": symbol, "interval": interval, "limit": limit})
 
+    def depth(self, symbol: str, limit: int = 100) -> dict[str, Any]:
+        return self._get("/fapi/v1/depth", {"symbol": symbol, "limit": limit})
+
     def ticker_price(self, symbol: str) -> dict[str, Any]:
         return self._get("/fapi/v2/ticker/price", {"symbol": symbol})
+
+    def open_interest(self, symbol: str) -> dict[str, Any]:
+        return self._get("/fapi/v1/openInterest", {"symbol": symbol})
+
+    def open_interest_hist(self, symbol: str, period: str = "5m", limit: int = 30) -> list[dict[str, Any]]:
+        return self._get("/futures/data/openInterestHist", {"symbol": symbol, "period": period, "limit": limit})
 
     def premium_index_klines(self, symbol: str, interval: str, limit: int = 80) -> list[list[Any]]:
         return self._get("/fapi/v1/premiumIndexKlines", {"symbol": symbol, "interval": interval, "limit": limit})

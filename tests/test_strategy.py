@@ -244,6 +244,7 @@ class StrategyTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             service = SignalService()
+            service.liquidity_enabled = False
             service.client = FakeClient(rows_by_symbol, premium_rows)
             service.store = JsonStore(Path(tmp) / "paper_state.json")
 
@@ -268,6 +269,7 @@ class StrategyTests(unittest.TestCase):
 
         with tempfile.TemporaryDirectory() as tmp:
             service = SignalService()
+            service.liquidity_enabled = False
             service.client = FakeClient(rows_by_symbol, premium_rows)
             service.store = JsonStore(Path(tmp) / "paper_state.json")
 
