@@ -53,6 +53,24 @@ class BinanceClientTests(unittest.TestCase):
         self.assertIn("/fapi/v1/klines", first_url)
         self.assertIn("/api/v3/klines", second_url)
 
+    def test_empty_gateway_body_falls_back_to_spot_market_data(self) -> None:
+        client = BinanceFuturesClient(
+            base_url="https://fapi.example.test",
+            timeout_seconds=1,
+            retries=0,
+        )
+        client.base_urls = ("https://fapi.example.test",)
+        rows = [[1, "100", "101", "99", "100.5", "10", 2, "1000", 1, "5", "500", "0"]]
+
+        with patch(
+            "urllib.request.urlopen",
+            side_effect=[FakeResponse(""), FakeResponse(str(rows).replace("'", '"'))],
+        ) as urlopen:
+            result = client.klines("BTCUSDT", "4h", 1)
+
+        self.assertEqual(result, rows)
+        self.assertIn("/api/v3/klines", urlopen.call_args_list[1].args[0].full_url)
+
     def test_futures_only_open_interest_does_not_use_spot_fallback(self) -> None:
         client = BinanceFuturesClient(
             base_url="https://fapi.example.test",

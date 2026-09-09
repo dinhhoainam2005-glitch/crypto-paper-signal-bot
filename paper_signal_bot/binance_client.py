@@ -46,7 +46,7 @@ class BinanceFuturesClient:
     def _retryable_source_error(exc: Exception) -> bool:
         if isinstance(exc, urllib.error.HTTPError):
             return int(exc.code) in RETRYABLE_HTTP_CODES
-        return isinstance(exc, (TimeoutError, urllib.error.URLError, OSError))
+        return isinstance(exc, (json.JSONDecodeError, TimeoutError, urllib.error.URLError, OSError))
 
     def _request_json(self, base_url: str, path: str, params: dict[str, Any]) -> Any:
         query = urllib.parse.urlencode(params)
