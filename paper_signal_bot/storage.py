@@ -21,6 +21,7 @@ class JsonStore:
         if not self.path.is_file():
             return {
                 "created_utc": now_iso(),
+                "forward_evidence_started_utc": now_iso(),
                 "last_scan_utc": None,
                 "scan_count": 0,
                 "signals": [],
@@ -32,6 +33,7 @@ class JsonStore:
         except json.JSONDecodeError:
             return {
                 "created_utc": now_iso(),
+                "forward_evidence_started_utc": now_iso(),
                 "last_scan_utc": None,
                 "scan_count": 0,
                 "signals": [],
@@ -45,17 +47,35 @@ class JsonStore:
         tmp.write_text(json.dumps(state, indent=2, sort_keys=True), encoding="utf-8")
         tmp.replace(self.path)
 
-    def record_scan(self, scan: dict[str, Any], new_signals: list[dict[str, Any]], new_market_events: list[dict[str, Any]] | None = None, *, now_ms: int | None = None) -> dict[str, Any]:
+    def record_scan(
+        self,
+        scan: dict[str, Any],
+        new_signals: list[dict[str, Any]],
+        new_market_events: list[dict[str, Any]] | None = None,
+        closed_signals: list[dict[str, Any]] | None = None,
+        *,
+        now_ms: int | None = None,
+    ) -> dict[str, Any]:
         state = self.load()
+        state.setdefault("forward_evidence_started_utc", state.get("created_utc") or now_iso())
         state["last_scan_utc"] = now_iso()
         state["scan_count"] = int(state.get("scan_count", 0)) + 1
         state["last_scan"] = scan
 
-        now_ms = now_ms if now_ms is not None else int(datetime.now(timezone.utc).timestamp() * 1000)
+        closed_by_id = {
+            item["signal_id"]: item
+            for item in closed_signals or []
+            if item.get("signal_id")
+        }
+        if closed_by_id:
+            for item in state.get("signals", []):
+                update = closed_by_id.get(item.get("signal_id"))
+                if update is not None:
+                    item.update(update)
         active = [
             item
             for item in state.get("active_positions", [])
-            if int(item.get("planned_exit_time_ms", 0)) > now_ms
+            if item.get("signal_id") not in closed_by_id
         ]
         existing_ids = {item.get("signal_id") for item in state.get("signals", [])}
         for signal in new_signals:
@@ -72,6 +92,7 @@ class JsonStore:
         state["market_events"] = state.get("market_events", [])[-self.max_events:]
         state["active_positions"] = active
         state["signals"] = state.get("signals", [])[-self.max_signals :]
+        state["trade_readiness"] = scan.get("trade_readiness", state.get("trade_readiness"))
         self.save(state)
         return state
 

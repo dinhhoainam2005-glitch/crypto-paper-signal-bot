@@ -241,6 +241,13 @@ def fmt_float(value: Any, digits: int = 4) -> str:
         return "n/a"
 
 
+def percent(value: Any, digits: int = 1) -> str:
+    try:
+        return f"{float(value) * 100:.{digits}f}%"
+    except (TypeError, ValueError):
+        return "n/a"
+
+
 def fmt_signed_bps(value: Any) -> str:
     try:
         return f"{float(value):+.1f} bps"
@@ -346,6 +353,11 @@ def format_startup_message(*, strategy_id: str, scan_interval_seconds: int, hear
             "📌 Chế độ: <b>CHỈ GỬI TÍN HIỆU PAPER</b>",
             "⏱️ Khung thời gian: <b>1h + 4h</b>",
             "",
+            "🧪 <b>CỬA TRADE A+</b>",
+            "• Trạng thái ban đầu: <b>KHÓA / WATCH ONLY</b>",
+            "• Chỉ mở khi đủ 90 ngày, 150 lệnh đóng và toàn bộ chuẩn forward",
+            "• Mục tiêu xác suất kỳ vọng dương: <b>≥ 80%</b>",
+            "",
             "📊 <b>THỊ TRƯỜNG GỬI TÍN HIỆU</b>",
             "• BTCUSDT 1h, 4h",
             "• ETHUSDT 1h, 4h",
@@ -409,6 +421,9 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
     state = "OK" if data_state == "FRESH" and all(g.get("status") not in {"ERROR", "INVALID_DATA", "DATA_GAP", "INSUFFICIENT_HISTORY"} for g in all_groups) else "DEGRADED"
     data_age = data_age_label(latest_dt.isoformat() if latest_dt else None, scanned_utc)
     rules_scanned = sum(int(float(group.get("candidate_count") or 0)) for group in groups)
+    readiness = scan_summary.get("trade_readiness") or {}
+    readiness_metrics = readiness.get("metrics") or {}
+    readiness_status = "ĐỦ ĐIỀU KIỆN TRADE A+" if readiness.get("trade_a_plus_eligible") else "KHÓA / WATCH ONLY"
     lines = [
         f"💞📡 <b>{bot_label(strategy_id).upper()} HEARTBEAT — ĐANG THEO DÕI THỊ TRƯỜNG</b>",
         "━━━━━━━━━━━━━━━━━━━━━━━━",
@@ -419,7 +434,12 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
         "",
         "📊 <b>LẦN QUÉT GẦN NHẤT</b>",
         "• Trạng thái: <b>{state}</b>".format(state=esc(status_label(state))),
-        "• Tín hiệu trade mới: <b>{count}</b>".format(count=esc(scan_summary.get("new_signal_count", 0))),
+        "• Tín hiệu paper mới: <b>{count}</b>".format(count=esc(scan_summary.get("new_signal_count", 0))),
+        "• WATCH mới: <b>{count}</b> | TRADE A+ mới: <b>{aplus}</b>".format(
+            count=esc(scan_summary.get("new_watch_signal_count", 0)),
+            aplus=esc(scan_summary.get("new_trade_a_plus_count", 0)),
+        ),
+        "• Lệnh paper vừa đóng: <b>{count}</b>".format(count=esc(scan_summary.get("closed_signal_count", 0))),
         "• Cảnh báo xung lực mới: <b>{count}</b> (theo dõi)".format(count=esc(scan_summary.get("new_pulse_event_count", 0))),
         "• Cảnh báo thanh khoản: <b>{count}</b> (theo dõi)".format(count=esc(scan_summary.get("new_liquidity_event_count", 0))),
         "• Cảnh báo vĩ mô: <b>{count}</b> (theo dõi)".format(count=esc(scan_summary.get("new_macro_event_count", 0))),
@@ -432,6 +452,23 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
         "• Thời gian quét: <b>{duration}</b>".format(duration=esc(duration_label(scan_summary.get("scan_duration_seconds")))),
         "• Khoảng cách giữa 2 lần quét: <b>{duration}</b>".format(duration=esc(duration_label(scan_summary.get("scan_gap_seconds")))),
         "• Thời điểm: <b>{at}</b>".format(at=esc(compact_utc(scanned_utc))),
+        "",
+        "🧪 <b>SẴN SÀNG TRADE A+</b>",
+        "• Trạng thái: <b>{status}</b>".format(status=esc(readiness_status)),
+        "• Forward: <code>{days}</code>/90 ngày | Lệnh đóng: <code>{trades}</code>/150".format(
+            days=fmt_float(readiness_metrics.get("forward_days"), 1),
+            trades=esc(readiness_metrics.get("closed_trades", 0)),
+        ),
+        "• Win: <code>{win}</code> | PF12: <code>{pf12}</code> | PF20: <code>{pf20}</code>".format(
+            win=esc(percent(readiness_metrics.get("win_rate"))),
+            pf12=fmt_float(readiness_metrics.get("profit_factor_12bps"), 2),
+            pf20=fmt_float(readiness_metrics.get("profit_factor_20bps"), 2),
+        ),
+        "• Sharpe: <code>{sharpe}</code> | DD: <code>{dd}%</code> | P(dương): <code>{prob}</code>".format(
+            sharpe=fmt_float(readiness_metrics.get("sharpe_12bps"), 2),
+            dd=fmt_float(readiness_metrics.get("max_drawdown_pct"), 2),
+            prob=esc(percent(readiness_metrics.get("probability_positive"))),
+        ),
         "",
         "📡 <b>TỔNG QUAN THỊ TRƯỜNG</b>",
     ]
@@ -574,6 +611,9 @@ def format_signal_message(signal: dict[str, Any]) -> str:
     strategy_id = signal.get("strategy_id", "")
     notify_time = signal.get("notify_time_utc") or signal.get("created_utc") or signal.get("scan_time_utc")
     side = str(signal.get("side", "")).upper()
+    signal_tier = str(signal.get("signal_tier", "WATCH")).upper()
+    tier_title = "ỨNG VIÊN TRADE A+ (VẪN PAPER)" if signal_tier == "TRADE_A_PLUS" else "WATCH PAPER / CHƯA ĐỦ CHUẨN TIỀN THẬT"
+    tier_icon = "🏅" if signal_tier == "TRADE_A_PLUS" else "👁️"
     side_icon = "📈" if side == "LONG" else "📉" if side == "SHORT" else "📡"
     quality_lines = [
         "• Ứng viên: <code>{candidate_id}</code>".format(
@@ -639,7 +679,7 @@ def format_signal_message(signal: dict[str, Any]) -> str:
             side_banner(signal.get("symbol", ""), side),
             "━━━━━━━━━━━━━━━━━━━━━━━━",
             "",
-            "✅ <b>TÍN HIỆU PAPER MỚI</b>",
+            "{icon} <b>{title}</b>".format(icon=tier_icon, title=esc(tier_title)),
             "{icon} Hướng: <b>{side}</b>".format(icon=side_icon, side=esc(side_label(side))),
             "⏱️ Khung thời gian: <b>{tf}</b>".format(tf=esc(signal.get("timeframe", ""))),
             "🧠 Mô hình: <code>{engine}</code>".format(engine=esc(engine_label(strategy_id))),
@@ -679,6 +719,12 @@ def format_signal_message(signal: dict[str, Any]) -> str:
             "",
             "📊 <b>CHẤT LƯỢNG TÍN HIỆU</b>",
             *quality_lines,
+            "",
+            "🧪 Cửa chất lượng: <code>{gate}</code> | Trạng thái: <code>{status}</code>".format(
+                gate=esc(signal.get("trade_readiness_gate_id", "R30A_FORWARD_TRADE_A_PLUS_GATE")),
+                status=esc(signal.get("trade_readiness_status", "WATCH_ONLY")),
+            ),
+            "• Cho phép tiền thật: <b>KHÔNG</b>",
             "",
             "🔒 <b>CHỈ PAPER / KHÔNG TỰ ĐẶT LỆNH</b>",
             clock_line(notify_time),

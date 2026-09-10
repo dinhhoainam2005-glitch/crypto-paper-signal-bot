@@ -18,6 +18,7 @@ from .liquidity_intel import LIQUIDITY_ID, LIQUIDITY_SYMBOLS, evaluate_liquidity
 from .macro_events import MACRO_ID, evaluate_macro_calendar, fetch_macro_calendar
 from .storage import JsonStore
 from .market_pulse import MAX_PULSE_LAG_SECONDS, PULSE_ID, PULSE_MARKETS, THRESHOLDS, evaluate_market_pulses
+from .quality_gate import DEFAULT_POLICY, GATE_ID, classify_signal, evaluate_trade_readiness
 from .strategy import PORTFOLIO_ID, PORTFOLIO_METRICS, PORTFOLIO_NAME, R26A_CONTEXT_MARKETS, R26A_SCAN_MARKETS, STRATEGY_ID, candidate_groups, evaluate_latest
 from .telegram import (
     TelegramSender,
@@ -105,6 +106,63 @@ def effective_macro_events_per_scan() -> int:
     )
 
 
+def settle_due_positions(
+    active_positions: list[dict[str, Any]],
+    klines_cache: dict[tuple[str, str], list[list[Any]]],
+    *,
+    at_ms: int,
+) -> list[dict[str, Any]]:
+    closed: list[dict[str, Any]] = []
+    for position in active_positions:
+        exit_time_ms = int(position.get("planned_exit_time_ms", 0))
+        if not exit_time_ms or exit_time_ms > at_ms:
+            continue
+        rows = klines_cache.get((str(position.get("symbol")), str(position.get("timeframe"))), [])
+        exit_row = next((row for row in rows if int(row[0]) == exit_time_ms), None)
+        if exit_row is None:
+            continue
+        entry_price = float(position.get("entry_price") or 0.0)
+        exit_price = float(exit_row[1])
+        if not math.isfinite(entry_price) or not math.isfinite(exit_price) or entry_price <= 0.0 or exit_price <= 0.0:
+            continue
+        side_multiplier = -1.0 if str(position.get("side", "")).upper() == "SHORT" else 1.0
+        gross_return = side_multiplier * (exit_price / entry_price - 1.0)
+        update = dict(position)
+        update.update(
+            {
+                "status": "PAPER_CLOSED",
+                "actual_exit_time_ms": exit_time_ms,
+                "actual_exit_time_utc": iso_from_ms(exit_time_ms),
+                "actual_exit_price": exit_price,
+                "exit_price_source": "PLANNED_EXIT_CANDLE_OPEN",
+                "settled_utc": iso_from_ms(at_ms),
+                "settlement_lag_seconds": max((at_ms - exit_time_ms) / 1000.0, 0.0),
+                "gross_return": gross_return,
+                "net_return_12bps": gross_return - 0.0012,
+                "net_return_20bps": gross_return - 0.0020,
+                "paper_win_12bps": gross_return - 0.0012 > 0.0,
+            }
+        )
+        closed.append(update)
+    return closed
+
+
+def state_with_closed_signals(
+    state: dict[str, Any],
+    closed_signals: list[dict[str, Any]],
+    *,
+    increment_scan_count: bool = False,
+) -> dict[str, Any]:
+    closed_by_id = {item.get("signal_id"): item for item in closed_signals}
+    merged = dict(state)
+    merged["signals"] = [
+        closed_by_id.get(item.get("signal_id"), item)
+        for item in state.get("signals", [])
+    ]
+    merged["scan_count"] = int(state.get("scan_count", 0)) + (1 if increment_scan_count else 0)
+    return merged
+
+
 def compact_scan(scan_result: dict[str, Any]) -> dict[str, Any]:
     scan = scan_result.get("scan", {})
     groups = []
@@ -158,6 +216,9 @@ def compact_scan(scan_result: dict[str, Any]) -> dict[str, Any]:
         "strategy_id": STRATEGY_ID,
         "paper_only": True,
         "new_signal_count": scan.get("new_signal_count", 0),
+        "new_watch_signal_count": scan.get("new_watch_signal_count", 0),
+        "new_trade_a_plus_count": scan.get("new_trade_a_plus_count", 0),
+        "closed_signal_count": scan.get("closed_signal_count", 0),
         "suppressed_signal_count": scan.get("suppressed_signal_count", 0),
         "active_position_count": len(state.get("active_positions", [])),
         "new_market_event_count": scan.get("new_market_event_count", 0),
@@ -170,6 +231,7 @@ def compact_scan(scan_result: dict[str, Any]) -> dict[str, Any]:
         "macro_calendar": scan.get("macro_calendar", []),
         "scan_duration_seconds": scan.get("scan_duration_seconds"),
         "scan_gap_seconds": scan.get("scan_gap_seconds"),
+        "trade_readiness": scan.get("trade_readiness", {}),
         "groups": groups,
     }
 
@@ -202,6 +264,22 @@ class SignalService:
         self._macro_calendar_cache: dict[str, Any] | None = None
         self._macro_calendar_cache_until_ms = 0
 
+    def durable_state_configured(self) -> bool:
+        path = self.store.path
+        if os.getenv("RENDER"):
+            return path.is_absolute() and path.as_posix().startswith("/var/data/")
+        return path.is_absolute()
+
+    def current_trade_readiness(
+        self,
+        *,
+        at_ms: int,
+        closed_signals: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        source = state_with_closed_signals(self.store.load(), closed_signals or [])
+        source["durable_state_configured"] = self.durable_state_configured()
+        return evaluate_trade_readiness(source, at_ms=at_ms)
+
     def macro_calendar(self, at_ms: int) -> dict[str, Any]:
         ttl_seconds = env_int("MACRO_CALENDAR_CACHE_SECONDS", DEFAULT_MACRO_CALENDAR_CACHE_SECONDS, 300)
         if self._macro_calendar_cache is not None and at_ms < self._macro_calendar_cache_until_ms:
@@ -213,12 +291,11 @@ class SignalService:
 
     @staticmethod
     def active_assets_from_state(state: dict[str, Any], at_ms: int | None = None) -> set[str]:
-        current_ms = now_ms() if at_ms is None else at_ms
         active = state.get("active_positions", [])
         return {
             str(item.get("asset"))
             for item in active
-            if int(item.get("planned_exit_time_ms", 0)) > current_ms
+            if item.get("asset") and item.get("status") != "PAPER_CLOSED"
         }
 
     @staticmethod
@@ -245,7 +322,6 @@ class SignalService:
             state_before = self.store.load()
             if self.session_floor_ms is None:
                 self.session_floor_ms = scan_started_ms if now_ms_override is None and not state_before.get("scan_count") else 0
-            active_assets = self.active_assets_from_state(state_before, scan_started_ms)
             existing_signal_ids = self.existing_signal_ids_from_state(state_before)
             klines_cache: dict[tuple[str, str], list[list[Any]]] = {}
             premium_cache: dict[tuple[str, str], list[list[Any]]] = {}
@@ -261,6 +337,26 @@ class SignalService:
                         fetch_errors[key] = str(exc)
                         self.store.record_error(f"{key[0]} {key[1]}: {exc}")
             evaluated_ms = scan_started_ms if now_ms_override is not None else now_ms()
+            closed_signals = settle_due_positions(
+                state_before.get("active_positions", []),
+                klines_cache,
+                at_ms=evaluated_ms,
+            )
+            closed_ids = {item.get("signal_id") for item in closed_signals}
+            active_state = dict(state_before)
+            active_state["active_positions"] = [
+                item
+                for item in state_before.get("active_positions", [])
+                if item.get("signal_id") not in closed_ids
+            ]
+            active_assets = self.active_assets_from_state(active_state, evaluated_ms)
+            readiness_source = state_with_closed_signals(
+                state_before,
+                closed_signals,
+                increment_scan_count=True,
+            )
+            readiness_source["durable_state_configured"] = self.durable_state_configured()
+            trade_readiness = evaluate_trade_readiness(readiness_source, at_ms=evaluated_ms)
             pulse = evaluate_market_pulses(klines_cache, scan_started_ms)
             liquidity = {"engine_id": LIQUIDITY_ID, "events": [], "groups": []}
             if self.liquidity_enabled:
@@ -374,6 +470,10 @@ class SignalService:
                         signal["entry_lag_seconds"] = entry_lag_seconds
                         signal["max_entry_lag_seconds"] = max_entry_lag_seconds
                         signal["max_chase_bps"] = max_chase_bps
+                        signal["signal_tier"] = classify_signal(trade_readiness, signal)
+                        signal["trade_readiness_status"] = trade_readiness["status"]
+                        signal["trade_readiness_gate_id"] = trade_readiness["gate_id"]
+                        signal["real_money_authorized"] = False
                         if signal["entry_time_ms"] < self.session_floor_ms:
                             signal["suppressed_reason"] = "STARTUP_HISTORICAL_SIGNAL"
                             suppressed_signals.append(signal)
@@ -458,10 +558,21 @@ class SignalService:
                 "groups": results,
                 "new_signals": signals,
                 "new_signal_count": len(signals),
+                "new_watch_signal_count": sum(item.get("signal_tier") == "WATCH" for item in signals),
+                "new_trade_a_plus_count": sum(item.get("signal_tier") == "TRADE_A_PLUS" for item in signals),
+                "closed_signals": closed_signals,
+                "closed_signal_count": len(closed_signals),
+                "trade_readiness": trade_readiness,
                 "suppressed_signals": suppressed_signals,
                 "suppressed_signal_count": len(suppressed_signals),
             }
-            state = self.store.record_scan(scan, signals, events, now_ms=evaluated_ms)
+            state = self.store.record_scan(
+                scan,
+                signals,
+                events,
+                closed_signals,
+                now_ms=evaluated_ms,
+            )
             return {"scan": scan, "state": state}
 
 
@@ -486,7 +597,15 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         if parsed.path == "/health":
-            self.send_json({"status": "ok", "strategy_id": STRATEGY_ID, "paper_only": True})
+            readiness = SERVICE.store.load().get("trade_readiness", {})
+            self.send_json(
+                {
+                    "status": "ok",
+                    "strategy_id": STRATEGY_ID,
+                    "paper_only": True,
+                    "trade_readiness_status": readiness.get("status", "WATCH_ONLY"),
+                }
+            )
             return
         if parsed.path == "/":
             state = SERVICE.store.load()
@@ -496,12 +615,15 @@ class Handler(BaseHTTPRequestHandler):
                     "strategy_id": STRATEGY_ID,
                     "paper_only": True,
                     "last_scan_utc": state.get("last_scan_utc"),
-                    "routes": ["/health", "/status", "/signals/latest", "/events/latest", "/liquidity/latest", "/macro/latest", "/macro/calendar", "/scan", "/spec"],
+                    "routes": ["/health", "/status", "/readiness", "/signals/latest", "/events/latest", "/liquidity/latest", "/macro/latest", "/macro/calendar", "/scan", "/spec"],
                 }
             )
             return
         if parsed.path == "/status":
             self.send_json(SERVICE.store.load())
+            return
+        if parsed.path == "/readiness":
+            self.send_json(SERVICE.current_trade_readiness(at_ms=now_ms()))
             return
         if parsed.path in {"/signals/latest", "/events/latest", "/liquidity/latest", "/macro/latest"}:
             state = SERVICE.store.load()
@@ -553,6 +675,16 @@ class Handler(BaseHTTPRequestHandler):
                     "portfolio_id": PORTFOLIO_ID,
                     "portfolio_name": PORTFOLIO_NAME,
                     "paper_only": True,
+                    "signal_tiers": {
+                        "WATCH": "Forward evidence is incomplete; observation only.",
+                        "TRADE_A_PLUS": "All locked forward gates passed; still paper-only until a separate live release.",
+                    },
+                    "trade_a_plus_gate": {
+                        "gate_id": GATE_ID,
+                        "research_promotion_approved": False,
+                        "policy": DEFAULT_POLICY,
+                        "current": SERVICE.current_trade_readiness(at_ms=now_ms()),
+                    },
                     "release_id": PULSE_ID,
                     "telegram_language": "vi",
                     "data_source_fallback": {

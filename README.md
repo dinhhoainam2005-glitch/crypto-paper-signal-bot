@@ -1,6 +1,6 @@
 # Crypto Paper Signal Bot
 
-Paper-only web service for the R26A quality-core signal router, with R25A market-pulse, R27A liquidity-intel and R28A macro-event watches.
+Paper-only web service for the R26A quality-core signal router, with R25A market-pulse, R27A liquidity-intel, R28A macro-event watches and the locked R30A forward Trade A+ gate.
 
 ## Status
 
@@ -10,6 +10,7 @@ This repository is research-to-paper only.
 - Exchange order placement: not implemented
 - Telegram alerts: Vietnamese paper notifications only
 - Render target: Python web service with an internal paper-scan loop
+- Trade A+ gate: locked until untouched forward evidence passes every R30A rule
 
 Current paper strategy:
 
@@ -22,13 +23,32 @@ Current paper strategy:
 - Research status: R26A quality-core expansion selected for paper observation only
 - Freshness guard: suppress paper trade alerts when entry is older than 10 minutes or price has already moved more than 40 bps in the signal direction
 
-Reported R26A quality-gate metrics:
+Historical R26A report metrics (reference only, never sufficient for Trade A+ promotion):
 
 | Sample | Trades/week | PF | Sharpe | Win | Max DD % |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Frozen | 5.605 | 1.608 | 2.834 | 55.6% | -9.13 |
 | Validation | 6.923 | 1.641 | 3.488 | 54.1% | -8.52 |
 | Recent | 4.607 | 11.371 | 8.972 | 77.8% | -1.08 |
+
+R30A independently settles every paper position at the planned exit candle open
+and records gross return, net return after 12 bps and stress return after 20 bps.
+Every new signal is labelled `WATCH` by default. It can be labelled
+`TRADE_A_PLUS` only when all locked forward gates pass simultaneously:
+
+- at least 90 forward days and 150 closed paper trades
+- win rate at least 60% with a 70% target
+- PF after 12 bps at least 1.50 and stress PF after 20 bps at least 1.20
+- Sharpe at least 1.20 and maximum drawdown no worse than -10%
+- block-bootstrap probability of positive expectancy at least 80%
+- at least 30 LONG, 30 SHORT, 30 trades on 1h and 30 trades on 4h
+- each promoted symbol/timeframe/direction cell has at least 20 trades, PF12 1.30 and stress PF20 1.10
+- no single symbol contributes more than 50% of net profit
+- Telegram delivery at least 99% and scan coverage at least 90%
+- an explicit code-reviewed research promotion after untouched forward validation
+
+Passing R30A still does not place orders. Real-money execution remains absent and
+requires a separate release, capital limit and kill-switch review.
 
 R25A watches BTC/ETH/SOL/BNB on 15m, 1h and 4h in both directions. These are
 closed-candle impulse alerts, labelled `WATCH ONLY`, with no entry, target,
@@ -48,6 +68,15 @@ do not include TP/SL and do not claim to be a vendor-grade liquidation heatmap. 
 true Hyperliquid liquidation-event feed or Coinglass/Hyblock-style liquidation
 heatmap can be connected later as a provider if an API key/data subscription is
 available.
+
+R29Q is a local, forward-only research recorder. It does not alter production
+signals. Once per minute it stores raw Binance USD-M futures L2/OI/mark/1m-volume
+snapshots and Hyperliquid L2 snapshots for BTC/ETH/SOL/BNB. A separate official
+Binance `!forceOrder@arr` WebSocket stores exact forced-liquidation prints. The
+Hyperliquid public global market streams do not identify every liquidation, so
+Hyperliquid L2 is explicitly labelled as L2-only rather than a liquidation feed.
+The default durable path is
+`D:\@Nam\btc_eth_signal_research\raw\R29Q_forward_truth`.
 
 The data client first uses Binance USD-M Futures REST and futures mirror hosts.
 If a cloud IP is temporarily blocked/rate-limited by the futures gateway, public
@@ -118,6 +147,7 @@ Useful routes:
 
 - `/health`: lightweight uptime endpoint
 - `/status`: latest stored bot state
+- `/readiness`: current R30A Trade A+ metrics, gates and Vietnamese failure reasons
 - `/signals/latest`: recent paper signals
 - `/events/latest`: recent market watches with delivery status
 - `/liquidity/latest`: recent liquidity-intel watches
@@ -133,6 +163,11 @@ delivery latency. Local state is ephemeral on Render Free and can be lost on
 restart/redeploy. `/health` checks HTTP liveness; use `/status` to inspect actual
 scan freshness. See https://render.com/docs/free .
 
+R30A forward evidence must use durable state. Before starting the 90-day clock on
+a paid Render service, attach a persistent disk at `/var/data` and set
+`STATE_PATH=/var/data/paper_state.json`. A paid instance without persistent state
+improves uptime but can still lose its forward ledger during replacement or redeploy.
+
 Required environment variables:
 
 ```text
@@ -146,6 +181,7 @@ MAX_SIGNAL_ENTRY_LAG_SECONDS=600
 MAX_SIGNAL_CHASE_BPS=40
 MAX_SIGNALS_RETAINED=500
 MAX_MARKET_EVENTS_RETAINED=500
+STATE_PATH=/var/data/paper_state.json
 MAX_MARKET_PULSE_LAG_SECONDS=600
 MAX_MARKET_PULSE_EVENTS_PER_SCAN=12
 LIQUIDITY_INTEL_ENABLED=true
@@ -186,7 +222,7 @@ python -m paper_signal_bot.web
 ## Verification
 
 ```powershell
-python -m unittest -v tests.test_strategy tests.test_market_pulse tests.test_liquidity_intel tests.test_macro_events tests.test_binance_client
+python -m unittest discover -s tests -v
 python -m research.r25a_market_audit
 ```
 
