@@ -6,8 +6,7 @@ import time
 
 from .strategy import STRATEGY_ID
 from .web import (
-    compact_scan, effective_scan_interval_seconds, notifiable_signals,
-    now_iso, scan_notify_once, send_startup_message,
+    effective_scan_interval_seconds, notifiable_signals, now_iso, scan_notify_once,
 )
 
 
@@ -18,13 +17,18 @@ def main() -> None:
     print(json.dumps({"event": "worker_started", "time_utc": now_iso(),
                       "strategy_id": STRATEGY_ID, "paper_only": True,
                       "scan_interval_seconds": interval}), flush=True)
-    send_startup_message(interval, heartbeat_interval)
+    first_scan = True
     while True:
         started = time.monotonic()
         try:
-            scan_notify_once(heartbeat_interval_seconds=heartbeat_interval, force_heartbeat=run_once)
+            scan_notify_once(
+                heartbeat_interval_seconds=heartbeat_interval,
+                force_heartbeat=run_once,
+                startup=first_scan,
+            )
         except Exception as exc:
             print(json.dumps({"event": "worker_error", "error": type(exc).__name__}), flush=True)
+        first_scan = False
         if run_once:
             break
         time.sleep(max(1.0, interval - (time.monotonic() - started)))

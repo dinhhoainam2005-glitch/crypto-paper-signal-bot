@@ -10,7 +10,7 @@ from paper_signal_bot.macro_events import (
     parse_bls_ics,
     parse_fomc_schedule,
 )
-from paper_signal_bot.telegram import format_macro_event_message
+from paper_signal_bot.telegram import format_macro_digest_message, format_macro_event_message
 
 
 def ms(iso_value: str) -> int:
@@ -117,6 +117,23 @@ class MacroEventTests(unittest.TestCase):
         self.assertIn("KỊCH BẢN CRYPTO", text)
         self.assertNotIn("Entry:", text)
         self.assertNotIn("TP1", text)
+
+    def test_macro_digest_is_compact_and_keeps_every_event(self) -> None:
+        events = evaluate_macro_calendar(
+            {
+                "calendar": [event.__dict__ for event in parse_bls_ics(BLS_SAMPLE)],
+                "source_states": [{"source": "BLS", "status": "OK"}],
+            },
+            ms("2026-09-03T12:30:00+00:00"),
+        )["events"]
+
+        text = format_macro_digest_message(events)
+
+        self.assertIn("CẢNH BÁO VĨ MÔ", text)
+        self.assertIn("Chỉ số giá tiêu dùng CPI", text)
+        self.assertIn("Báo cáo việc làm / NFP", text)
+        self.assertIn("KHÔNG PHẢI LỆNH TRADE", text)
+        self.assertLess(len(text), 1200)
 
 
 if __name__ == "__main__":

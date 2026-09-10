@@ -24,6 +24,7 @@ from .telegram import (
     TelegramSender,
     env_enabled,
     format_heartbeat_message,
+    format_macro_digest_message,
     format_signal_message,
     format_startup_message,
     format_market_pulse_message,
@@ -807,7 +808,13 @@ def send_startup_message(scan_interval_seconds: int, heartbeat_interval_seconds:
         )
 
 
-def deliver_pending(service: SignalService, telegram: TelegramSender) -> None:
+def deliver_pending(
+    service: SignalService,
+    telegram: TelegramSender,
+    *,
+    defer_macro: bool = False,
+) -> list[dict[str, Any]]:
+    macro_batch: list[dict[str, Any]] = []
     with service.lock:
         state = service.store.load()
         for collection, key, formatter in (
@@ -822,6 +829,9 @@ def deliver_pending(service: SignalService, telegram: TelegramSender) -> None:
                 expiry = item.get("expires_at_ms") if collection == "market_events" else int(item["entry_time_ms"]) + int(item["max_entry_lag_seconds"]) * 1000
                 if at_ms > expiry:
                     service.store.record_delivery(collection, item_id, "EXPIRED")
+                    continue
+                if collection == "market_events" and item.get("event_type") == "MACRO_EVENT":
+                    macro_batch.append(item)
                     continue
                 if not telegram.configured:
                     continue
@@ -855,6 +865,41 @@ def deliver_pending(service: SignalService, telegram: TelegramSender) -> None:
                     service.store.record_delivery(collection, item_id, "PENDING", error=type(exc).__name__)
                     print(json.dumps({"event": "telegram_delivery", "id": item_id, "ok": False, "error": type(exc).__name__}), flush=True)
 
+        if macro_batch and not defer_macro and telegram.configured:
+            notified_ms = now_ms()
+            for item in macro_batch:
+                item["notify_time_utc"] = iso_from_ms(notified_ms)
+            try:
+                response = telegram.send_message(format_macro_digest_message(macro_batch))
+                if not response.get("ok"):
+                    raise RuntimeError("telegram_not_acknowledged")
+                for item in macro_batch:
+                    service.store.record_delivery("market_events", item["event_id"], "SENT", updates=item)
+                print(
+                    json.dumps({"event": "telegram_macro_digest", "count": len(macro_batch), "ok": True}),
+                    flush=True,
+                )
+            except Exception as exc:
+                for item in macro_batch:
+                    service.store.record_delivery(
+                        "market_events",
+                        item["event_id"],
+                        "PENDING",
+                        error=type(exc).__name__,
+                    )
+                print(
+                    json.dumps(
+                        {
+                            "event": "telegram_macro_digest",
+                            "count": len(macro_batch),
+                            "ok": False,
+                            "error": type(exc).__name__,
+                        }
+                    ),
+                    flush=True,
+                )
+    return macro_batch
+
 
 def format_event_message(item: dict[str, Any]) -> str:
     if item.get("event_type") == "LIQUIDITY_MAP":
@@ -864,35 +909,61 @@ def format_event_message(item: dict[str, Any]) -> str:
     return format_market_pulse_message(item)
 
 
-def scan_notify_once(*, heartbeat_interval_seconds: int, force_heartbeat: bool = False) -> dict[str, Any]:
+def scan_notify_once(
+    *,
+    heartbeat_interval_seconds: int,
+    force_heartbeat: bool = False,
+    startup: bool = False,
+) -> dict[str, Any]:
     with NOTIFY_LOCK:
-        return _scan_notify_once(heartbeat_interval_seconds=heartbeat_interval_seconds, force_heartbeat=force_heartbeat)
+        return _scan_notify_once(
+            heartbeat_interval_seconds=heartbeat_interval_seconds,
+            force_heartbeat=force_heartbeat,
+            startup=startup,
+        )
 
 
-def _scan_notify_once(*, heartbeat_interval_seconds: int, force_heartbeat: bool = False) -> dict[str, Any]:
+def _scan_notify_once(
+    *,
+    heartbeat_interval_seconds: int,
+    force_heartbeat: bool = False,
+    startup: bool = False,
+) -> dict[str, Any]:
     global LAST_HEARTBEAT_SENT
     telegram = TelegramSender()
     heartbeat_enabled = env_enabled("TELEGRAM_HEARTBEAT_ENABLED")
+    startup_enabled = startup and env_enabled("TELEGRAM_STARTUP_ENABLED")
     scan_result = SERVICE.scan_once()
-    deliver_pending(SERVICE, telegram)
+    macro_batch = deliver_pending(SERVICE, telegram, defer_macro=startup_enabled)
     scan_result["state"] = SERVICE.store.load()
     scan_summary = compact_scan(scan_result)
     print(json.dumps(scan_summary, sort_keys=True), flush=True)
 
     with NOTIFY_LOCK:
-        heartbeat_due = heartbeat_enabled and (force_heartbeat or time.monotonic() - LAST_HEARTBEAT_SENT >= heartbeat_interval_seconds)
-        if heartbeat_due:
+        if startup_enabled:
             try:
-                heartbeat_result = telegram.send_message(format_heartbeat_message(scan_summary))
-                LAST_HEARTBEAT_SENT = time.monotonic()
+                startup_result = telegram.send_message(
+                    format_startup_message(
+                        strategy_id=STRATEGY_ID,
+                        scan_interval_seconds=effective_scan_interval_seconds(),
+                        heartbeat_interval_seconds=heartbeat_interval_seconds,
+                        scan_summary=scan_summary,
+                        macro_events=macro_batch,
+                    )
+                )
+                if startup_result.get("ok"):
+                    for item in macro_batch:
+                        SERVICE.store.record_delivery("market_events", item["event_id"], "SENT", updates=item)
+                    LAST_HEARTBEAT_SENT = time.monotonic()
                 print(
                     json.dumps(
                         {
-                            "event": "telegram_heartbeat",
+                            "event": "telegram_startup_digest",
                             "time_utc": now_iso(),
-                            "ok": heartbeat_result.get("ok", False),
-                            "skipped": heartbeat_result.get("skipped", False),
-                            "reason": heartbeat_result.get("reason"),
+                            "ok": startup_result.get("ok", False),
+                            "macro_count": len(macro_batch),
+                            "skipped": startup_result.get("skipped", False),
+                            "reason": startup_result.get("reason"),
                         },
                         sort_keys=True,
                     ),
@@ -900,20 +971,48 @@ def _scan_notify_once(*, heartbeat_interval_seconds: int, force_heartbeat: bool 
                 )
             except Exception as exc:
                 print(
-                    json.dumps({"event": "telegram_heartbeat_error", "time_utc": now_iso(), "error": str(exc)}, sort_keys=True),
+                    json.dumps({"event": "telegram_startup_error", "time_utc": now_iso(), "error": str(exc)}, sort_keys=True),
                     flush=True,
                 )
+        else:
+            heartbeat_due = heartbeat_enabled and (
+                force_heartbeat or time.monotonic() - LAST_HEARTBEAT_SENT >= heartbeat_interval_seconds
+            )
+            if heartbeat_due:
+                try:
+                    heartbeat_result = telegram.send_message(format_heartbeat_message(scan_summary))
+                    LAST_HEARTBEAT_SENT = time.monotonic()
+                    print(
+                        json.dumps(
+                            {
+                                "event": "telegram_heartbeat",
+                                "time_utc": now_iso(),
+                                "ok": heartbeat_result.get("ok", False),
+                                "skipped": heartbeat_result.get("skipped", False),
+                                "reason": heartbeat_result.get("reason"),
+                            },
+                            sort_keys=True,
+                        ),
+                        flush=True,
+                    )
+                except Exception as exc:
+                    print(
+                        json.dumps({"event": "telegram_heartbeat_error", "time_utc": now_iso(), "error": str(exc)}, sort_keys=True),
+                        flush=True,
+                    )
 
     return scan_result
 
 
 def background_loop(interval_seconds: int, heartbeat_interval_seconds: int) -> None:
+    first_scan = True
     while True:
         started = time.monotonic()
         try:
-            scan_notify_once(heartbeat_interval_seconds=heartbeat_interval_seconds)
+            scan_notify_once(heartbeat_interval_seconds=heartbeat_interval_seconds, startup=first_scan)
         except Exception as exc:
             SERVICE.store.record_error(f"background scan: {exc}")
+        first_scan = False
         time.sleep(max(1.0, interval_seconds - (time.monotonic() - started)))
 
 
@@ -942,7 +1041,6 @@ def main() -> None:
         ),
         flush=True,
     )
-    send_startup_message(interval, heartbeat_interval)
     if not disable_background:
         thread = threading.Thread(target=background_loop, args=(interval, heartbeat_interval), daemon=True)
         thread.start()

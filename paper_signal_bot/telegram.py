@@ -203,6 +203,13 @@ def utc_vn_label(value: Any) -> str:
     )
 
 
+def compact_vn_label(value: Any) -> str:
+    parsed = parse_utc(value)
+    if parsed is None:
+        return compact_utc(value) or "n/a"
+    return parsed.astimezone(timezone(timedelta(hours=7))).strftime("%d/%m %H:%M VN")
+
+
 def interval_label(seconds: int) -> str:
     if seconds % 3600 == 0:
         return f"{seconds // 3600}h"
@@ -343,71 +350,97 @@ def data_age_label(latest_closed_bar_utc: Any, scanned_utc: Any) -> str:
     return f"{hours}h {remainder}m" if remainder else f"{hours}h"
 
 
-def format_startup_message(*, strategy_id: str, scan_interval_seconds: int, heartbeat_interval_seconds: int) -> str:
-    return "\n".join(
+def format_startup_message(
+    *,
+    strategy_id: str,
+    scan_interval_seconds: int,
+    heartbeat_interval_seconds: int,
+    scan_summary: dict[str, Any] | None = None,
+    macro_events: list[dict[str, Any]] | None = None,
+) -> str:
+    summary = scan_summary or {}
+    groups = summary.get("groups", [])
+    pulse_groups = summary.get("pulse_groups", [])
+    liquidity_groups = summary.get("liquidity_groups", [])
+    readiness = summary.get("trade_readiness") or {}
+    metrics = readiness.get("metrics") or {}
+    scan_ok = bool(groups) and all(
+        group.get("status") not in {"ERROR", "INVALID_DATA", "DATA_GAP", "STALE_DATA", "INSUFFICIENT_HISTORY"}
+        for group in groups
+    )
+    pulse_ready = sum(
+        group.get("data_state") == "FRESH"
+        and group.get("status") not in {"ERROR", "INVALID_DATA", "DATA_GAP", "INSUFFICIENT_HISTORY"}
+        for group in pulse_groups
+    )
+    liquidity_ready = sum(
+        group.get("data_state") == "FRESH" and group.get("status") not in {"DATA_NOT_READY", "ERROR"}
+        for group in liquidity_groups
+    )
+    status = "ONLINE / DỮ LIỆU SẴN SÀNG" if scan_ok else "ONLINE / ĐANG KIỂM TRA DỮ LIỆU"
+    lines = [
+        f"📡 <b>{bot_label(strategy_id).upper()} ĐÃ KHỞI ĐỘNG</b>",
+        "━━━━━━━━━━━━━━━━━━━━━━━━",
+        f"✅ Trạng thái: <b>{status}</b>",
+        "📌 Chế độ: <b>PAPER / WATCH ONLY</b>",
+        "⏱️ Quét: <b>{scan}</b> | Báo sống: <b>{heartbeat}</b>".format(
+            scan=esc(interval_label(scan_interval_seconds)),
+            heartbeat=esc(interval_label(heartbeat_interval_seconds)),
+        ),
+        "📊 Tín hiệu: <b>BTC, ETH 1h/4h</b> | <b>SOL, BNB 4h</b>",
+        "🔎 Theo dõi: xung lực <b>{pulse}/{pulse_total}</b> | thanh khoản <b>{liq}/{liq_total}</b> feed".format(
+            pulse=esc(pulse_ready),
+            pulse_total=esc(len(pulse_groups) or 12),
+            liq=esc(liquidity_ready),
+            liq_total=esc(len(liquidity_groups) or 4),
+        ),
+        "🧪 Trade A+: <b>{status}</b> | Forward <code>{days}/90d</code> | Đã đóng <code>{trades}/150</code>".format(
+            status="MỞ" if readiness.get("trade_a_plus_eligible") else "KHÓA",
+            days=fmt_float(metrics.get("forward_days"), 1),
+            trades=esc(metrics.get("closed_trades", 0)),
+        ),
+    ]
+    events = sorted(
+        macro_events or [],
+        key=lambda item: (int(item.get("event_time_ms") or 0), -int(item.get("impact_score") or 0)),
+    )
+    if events:
+        lines.extend(["", "🗓️ <b>VĨ MÔ CẦN LƯU Ý ({count})</b>".format(count=len(events))])
+        for event in events:
+            priority = str(event.get("priority", "MEDIUM")).upper()
+            icon = "🔴" if priority == "CRITICAL" else "🟠" if priority == "HIGH" else "🟡"
+            lines.append(
+                "• {icon} <b>{title}</b> | {time} | {phase}".format(
+                    icon=icon,
+                    title=esc(macro_title_label(event)),
+                    time=esc(compact_vn_label(event.get("event_time_utc"))),
+                    phase=esc(event.get("phase", "n/a")),
+                )
+            )
+    else:
+        lines.extend(["", "🗓️ Vĩ mô: <b>không có cảnh báo mới</b>"])
+    lines.extend(
         [
-            f"💞📡 <b>{bot_label(strategy_id).upper()} KHỞI ĐỘNG — ĐANG THEO DÕI THỊ TRƯỜNG</b>",
-            "━━━━━━━━━━━━━━━━━━━━━━━━",
             "",
-            "🧬 Bộ máy: <code>{engine}</code>".format(engine=esc(engine_label(strategy_id))),
-            "📌 Chế độ: <b>CHỈ GỬI TÍN HIỆU PAPER</b>",
-            "⏱️ Khung thời gian: <b>1h + 4h</b>",
-            "",
-            "🧪 <b>CỬA TRADE A+</b>",
-            "• Trạng thái ban đầu: <b>KHÓA / WATCH ONLY</b>",
-            "• Chỉ mở khi đủ 90 ngày, 150 lệnh đóng và toàn bộ chuẩn forward",
-            "• Mục tiêu xác suất kỳ vọng dương: <b>≥ 80%</b>",
-            "",
-            "📊 <b>THỊ TRƯỜNG GỬI TÍN HIỆU</b>",
-            "• BTCUSDT 1h, 4h",
-            "• ETHUSDT 1h, 4h",
-            "• SOLUSDT 4h",
-            "• BNBUSDT 4h",
-            "• Bối cảnh độ rộng: BTC/ETH/SOL/BNB 1h + 4h",
-            "",
-            "📡 <b>R25A XUNG LỰC THỊ TRƯỜNG / THEO DÕI</b>",
-            "• BTC / ETH / SOL / BNB: 15m + 1h + 4h",
-            "• LONG + SHORT | Chỉ theo dõi",
-            "",
-            "🧲 <b>R27A THANH KHOẢN / THEO DÕI</b>",
-            "• Sổ lệnh Binance + OI + khối lượng",
-            "• Đối chiếu Hyperliquid L2",
-            "• Proxy thanh khoản/thanh lý | Chỉ theo dõi",
-            "",
-            "🗓️ <b>R28A SỰ KIỆN VĨ MÔ / THEO DÕI</b>",
-            "• FOMC / CPI / NFP / PCE / GDP / Doanh số bán lẻ",
-            "• Lịch chính thức + nowcast/đồng thuận khi có",
-            "• Cửa sổ rủi ro vĩ mô | Chỉ theo dõi",
-            "",
-            "🛡️ <b>AN TOÀN</b>",
-            "• Gửi tín hiệu: <b>BẬT</b>",
-            "• Tự động vào lệnh: <b>TẮT</b>",
-            "• Chỉnh lệnh thật: <b>TẮT</b>",
-            "• Tiền thật: <b>TẮT</b>",
-            "",
-            "🗓️ <b>LỊCH CHẠY</b>",
-            f"• Quét: mỗi {interval_label(scan_interval_seconds)}",
-            f"• Heartbeat: mỗi {interval_label(heartbeat_interval_seconds)}",
-            "",
-            "🔒 <b>CHỈ GỬI TÍN HIỆU / KHÔNG TỰ ĐẶT LỆNH</b>",
-            clock_line(),
+            "🔒 <b>KHÔNG TỰ ĐẶT LỆNH / TIỀN THẬT ĐANG KHÓA</b>",
+            clock_line(summary.get("time_utc")),
         ]
     )
+    return "\n".join(lines)
 
 
 def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
     groups = scan_summary.get("groups", [])
     strategy_id = scan_summary.get("strategy_id", "")
     scanned_utc = scan_summary.get("time_utc")
-    timeframes = sorted({str(group.get("timeframe", "")).strip() for group in groups if group.get("timeframe")})
-    timeframe_label = " + ".join(timeframes) if timeframes else "n/a"
     latest_candle = ""
     latest_dt = None
     for group in groups:
-        parsed = parse_utc(group.get("latest_candle_close_utc"))
+        candle_value = group.get("latest_candle_close_utc") or group.get("latest_closed_bar_utc")
+        parsed = parse_utc(candle_value)
         if parsed is not None and (latest_dt is None or parsed > latest_dt):
             latest_dt = parsed
-            latest_candle = compact_utc(group.get("latest_candle_close_utc"))
+            latest_candle = compact_utc(candle_value)
     pulse_groups = scan_summary.get("pulse_groups", [])
     liquidity_groups = scan_summary.get("liquidity_groups", [])
     macro_groups = scan_summary.get("macro_groups", [])
@@ -419,62 +452,53 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
     states = [str(g.get("data_state", "UNKNOWN")) for g in all_groups]
     data_state = "FRESH" if states and all(s == "FRESH" for s in states) else "DEGRADED" if "FRESH" in states else "UNKNOWN"
     state = "OK" if data_state == "FRESH" and all(g.get("status") not in {"ERROR", "INVALID_DATA", "DATA_GAP", "INSUFFICIENT_HISTORY"} for g in all_groups) else "DEGRADED"
-    data_age = data_age_label(latest_dt.isoformat() if latest_dt else None, scanned_utc)
     rules_scanned = sum(int(float(group.get("candidate_count") or 0)) for group in groups)
     readiness = scan_summary.get("trade_readiness") or {}
     readiness_metrics = readiness.get("metrics") or {}
     readiness_status = "ĐỦ ĐIỀU KIỆN TRADE A+" if readiness.get("trade_a_plus_eligible") else "KHÓA / WATCH ONLY"
+    healthy_markets = sum(
+        group.get("data_state") == "FRESH"
+        and group.get("status") not in {"ERROR", "INVALID_DATA", "DATA_GAP", "STALE_DATA", "INSUFFICIENT_HISTORY"}
+        for group in groups
+    )
     lines = [
-        f"💞📡 <b>{bot_label(strategy_id).upper()} HEARTBEAT — ĐANG THEO DÕI THỊ TRƯỜNG</b>",
+        f"💓 <b>{bot_label(strategy_id).upper()} — BÁO SỐNG</b>",
         "━━━━━━━━━━━━━━━━━━━━━━━━",
-        "",
-        "🧬 Bộ máy: <code>{engine}</code>".format(engine=esc(engine_label(strategy_id))),
-        "📌 Chế độ: <b>CHỈ GỬI TÍN HIỆU PAPER</b>",
-        "⏱️ Khung thời gian: <b>{tf}</b>".format(tf=esc(timeframe_label)),
-        "",
-        "📊 <b>LẦN QUÉT GẦN NHẤT</b>",
-        "• Trạng thái: <b>{state}</b>".format(state=esc(status_label(state))),
-        "• Tín hiệu paper mới: <b>{count}</b>".format(count=esc(scan_summary.get("new_signal_count", 0))),
-        "• WATCH mới: <b>{count}</b> | TRADE A+ mới: <b>{aplus}</b>".format(
-            count=esc(scan_summary.get("new_watch_signal_count", 0)),
-            aplus=esc(scan_summary.get("new_trade_a_plus_count", 0)),
+        "✅ Hệ thống: <b>{state}</b> | Dữ liệu: <b>{data}</b>".format(
+            state=esc(status_label(state)),
+            data=esc(data_state_label(data_state)),
         ),
-        "• Lệnh paper vừa đóng: <b>{count}</b>".format(count=esc(scan_summary.get("closed_signal_count", 0))),
-        "• Cảnh báo xung lực mới: <b>{count}</b> (theo dõi)".format(count=esc(scan_summary.get("new_pulse_event_count", 0))),
-        "• Cảnh báo thanh khoản: <b>{count}</b> (theo dõi)".format(count=esc(scan_summary.get("new_liquidity_event_count", 0))),
-        "• Cảnh báo vĩ mô: <b>{count}</b> (theo dõi)".format(count=esc(scan_summary.get("new_macro_event_count", 0))),
-        "• Tín hiệu bị chặn: <b>{count}</b>".format(count=esc(scan_summary.get("suppressed_signal_count", 0))),
-        "• Vị thế paper đang mở: <b>{active}</b>".format(active=esc(scan_summary.get("active_position_count", 0))),
-        "• Luật đã quét: <b>{rules}</b>".format(rules=rules_scanned),
-        "• Dữ liệu: <b>{data}</b>".format(data=esc(data_state_label(data_state))),
-        "• Nến đóng gần nhất: <b>{candle}</b>".format(candle=esc(latest_candle or "n/a")),
-        "• Tuổi nến: <b>{age}</b>".format(age=esc(data_age)),
-        "• Thời gian quét: <b>{duration}</b>".format(duration=esc(duration_label(scan_summary.get("scan_duration_seconds")))),
-        "• Khoảng cách giữa 2 lần quét: <b>{duration}</b>".format(duration=esc(duration_label(scan_summary.get("scan_gap_seconds")))),
-        "• Thời điểm: <b>{at}</b>".format(at=esc(compact_utc(scanned_utc))),
+        "📊 Thị trường: <b>{ready}/{total}</b> sẵn sàng | Luật: <b>{rules}</b>".format(
+            ready=esc(healthy_markets),
+            total=esc(len(groups)),
+            rules=esc(rules_scanned),
+        ),
+        "⏱️ Nến mới nhất: <b>{candle}</b> | Quét: <b>{duration}</b>".format(
+            candle=esc(latest_candle or "n/a"),
+            duration=esc(duration_label(scan_summary.get("scan_duration_seconds"))),
+        ),
+        "📨 Mới: tín hiệu <b>{signals}</b> | bị chặn <b>{blocked}</b> | vị thế mở <b>{active}</b>".format(
+            signals=esc(scan_summary.get("new_signal_count", 0)),
+            blocked=esc(scan_summary.get("suppressed_signal_count", 0)),
+            active=esc(scan_summary.get("active_position_count", 0)),
+        ),
+        "👁️ Watch <b>{watch}</b> | Trade A+ <b>{aplus}</b> | vừa đóng <b>{closed}</b>".format(
+            watch=esc(scan_summary.get("new_watch_signal_count", 0)),
+            aplus=esc(scan_summary.get("new_trade_a_plus_count", 0)),
+            closed=esc(scan_summary.get("closed_signal_count", 0)),
+        ),
         "",
-        "🧪 <b>SẴN SÀNG TRADE A+</b>",
-        "• Trạng thái: <b>{status}</b>".format(status=esc(readiness_status)),
-        "• Forward: <code>{days}</code>/90 ngày | Lệnh đóng: <code>{trades}</code>/150".format(
+        "🧪 <b>TRADE A+: {status}</b>".format(status=esc(readiness_status)),
+        "• Forward <code>{days}/90d</code> | Đóng <code>{trades}/150</code> | Win <code>{win}</code> | PF12 <code>{pf12}</code>".format(
             days=fmt_float(readiness_metrics.get("forward_days"), 1),
             trades=esc(readiness_metrics.get("closed_trades", 0)),
-        ),
-        "• Win: <code>{win}</code> | PF12: <code>{pf12}</code> | PF20: <code>{pf20}</code>".format(
             win=esc(percent(readiness_metrics.get("win_rate"))),
             pf12=fmt_float(readiness_metrics.get("profit_factor_12bps"), 2),
-            pf20=fmt_float(readiness_metrics.get("profit_factor_20bps"), 2),
         ),
-        "• Sharpe: <code>{sharpe}</code> | DD: <code>{dd}%</code> | P(dương): <code>{prob}</code>".format(
-            sharpe=fmt_float(readiness_metrics.get("sharpe_12bps"), 2),
-            dd=fmt_float(readiness_metrics.get("max_drawdown_pct"), 2),
-            prob=esc(percent(readiness_metrics.get("probability_positive"))),
-        ),
-        "",
-        "📡 <b>TỔNG QUAN THỊ TRƯỜNG</b>",
     ]
     if pulse_groups:
         fresh = sum(g.get("data_state") == "FRESH" and g.get("status") not in {"INSUFFICIENT_HISTORY", "INVALID_DATA", "DATA_GAP"} for g in pulse_groups)
-        lines.insert(-1, f"📡 R25A theo dõi: <b>{fresh}/{len(pulse_groups)} feed sẵn sàng</b> | 15m + 1h + 4h | LONG + SHORT")
+        lines.append(f"📡 Xung lực: <b>{fresh}/{len(pulse_groups)}</b> feed sẵn sàng")
     if liquidity_groups:
         ready = sum(g.get("data_state") == "FRESH" and g.get("status") not in {"DATA_NOT_READY", "ERROR"} for g in liquidity_groups)
         strongest = max(
@@ -482,27 +506,17 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
             key=lambda group: float((group.get("features") or {}).get("binance_wall_intensity") or 0.0),
         )
         strong_features = strongest.get("features") or {}
-        lines.extend(
-            [
-                "",
-                "🧲 <b>THANH KHOẢN</b>",
-                "• R27A feed: <b>{ready}/{total}</b> sẵn sàng | Sổ lệnh/OI Binance + Hyperliquid L2".format(
-                    ready=esc(ready),
-                    total=esc(len(liquidity_groups)),
-                ),
-                "• Tường thanh khoản mạnh nhất: <b>{symbol}</b> <code>{side}</code> @ <code>{price}</code> | <code>{distance}</code> bps".format(
-                    symbol=esc(strongest.get("symbol", "n/a")),
-                    side=esc(strong_features.get("binance_wall_side", "n/a")),
-                    price=fmt_float(strong_features.get("binance_wall_price"), 4),
-                    distance=fmt_float(strong_features.get("binance_wall_distance_bps"), 1),
-                ),
-            ]
+        lines.append(
+            "🧲 Thanh khoản: <b>{ready}/{total}</b> feed | Tường mạnh: <b>{symbol} {side}</b> @ <code>{price}</code>".format(
+                ready=esc(ready),
+                total=esc(len(liquidity_groups)),
+                symbol=esc(strongest.get("symbol", "n/a")),
+                side=esc(strong_features.get("binance_wall_side", "n/a")),
+                price=fmt_float(strong_features.get("binance_wall_price"), 4),
+            )
         )
     if macro_groups:
         macro_group = macro_groups[0]
-        source_states = macro_group.get("source_states") or []
-        ready_sources = sum(1 for item in source_states if item.get("status") == "OK")
-        disabled_sources = sum(1 for item in source_states if item.get("status") == "DISABLED")
         next_event = macro_group.get("next_event") or {}
         next_line = "n/a"
         if next_event:
@@ -511,94 +525,31 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
                 title=macro_title_label(next_event),
                 time=utc_vn_label(next_event.get("event_time_utc")),
             )
-        lines.extend(
-            [
-                "",
-                "🗓️ <b>SỰ KIỆN VĨ MÔ</b>",
-                "• Nguồn R28A: <b>{ready}/{total}</b> OK | nguồn tùy chọn đang tắt: <b>{disabled}</b>".format(
-                    ready=esc(ready_sources),
-                    total=esc(len(source_states)),
-                    disabled=esc(disabled_sources),
-                ),
-                "• Sự kiện đang theo dõi: <b>{count}</b> | Đang trong cửa sổ cảnh báo: <b>{alerts}</b>".format(
-                    count=esc(macro_group.get("upcoming_count", 0)),
-                    alerts=esc(macro_group.get("alert_count", 0)),
-                ),
-                "• Sắp tới: <code>{next}</code>".format(next=esc(next_line)),
-            ]
-        )
-    for group in groups:
-        group_lines = [
-            "",
-            "{icon} <b>{symbol} {tf}</b>".format(
-                icon=status_icon(group.get("status")),
-                symbol=esc(group.get("symbol", "")),
-                tf=esc(group.get("timeframe", "")),
-            ),
-            "• Trạng thái: <code>{status}</code>".format(status=esc(status_label(group.get("status", "")))),
-            "• Dữ liệu: <code>{data}</code> | Đóng nến: {close}".format(
-                data=esc(data_state_label(group.get("data_state", "UNKNOWN"))),
-                close=esc(compact_utc(group.get("latest_candle_close_utc")) or "n/a"),
-            ),
-        ]
-        if group.get("error"):
-            group_lines.append("• Lỗi: <code>{error}</code>".format(error=esc(short_text(group.get("error")))))
-        if group.get("suppressed_signal_count"):
-            group_lines.append(
-                "• Bị chặn: <code>{count}</code> {reasons}".format(
-                    count=esc(group.get("suppressed_signal_count")),
-                    reasons=esc(", ".join(group.get("suppressed_reasons") or [])),
-                )
-            )
-        if group.get("market_breadth_count") is not None:
-            group_lines.extend(
-                [
-                    "• Độ rộng thị trường: <code>{count}/{assets}</code> >= <code>{need}</code>".format(
-                        count=fmt_float(group.get("market_breadth_count"), 0),
-                        assets=fmt_float(group.get("market_breadth_assets"), 0),
-                        need=fmt_float(group.get("breadth_n"), 0),
-                    ),
-                    "• Trung bình thị trường: <code>{mean}</code>".format(
-                        mean=fmt_float(group.get("market_directional_mean"), 4),
-                    ),
-                ]
-            )
-        elif group.get("flow_thr") is not None:
-            group_lines.append(
-                "• Chế độ dòng tiền: <code>R15C taker-flow quality</code>"
-            )
-            group_lines.append(
-                "• Dòng taker: <code>{flow}</code> >= <code>{thr}</code>".format(
-                    flow=fmt_float(group.get("flow_directional"), 4),
-                    thr=fmt_float(group.get("flow_thr"), 4),
-                )
-            )
-            group_lines.append(
-                "• Biến động thực 24 nến: <code>{rv}</code> >= <code>{need}</code>".format(
-                    rv=fmt_float(group.get("realized_vol_24"), 4),
-                    need=fmt_float(group.get("quality_realized_vol_24_min"), 4),
-                )
-            )
-        else:
-            group_lines.append("• Điều kiện: <code>n/a</code>")
-        group_lines.append(
-            "• Z khối lượng 20: <code>{volz}</code>".format(
-                volz=fmt_float(group.get("quote_volume_prior_z_20"), 2),
+        lines.append(
+            "🗓️ Vĩ mô: <b>{alerts}</b> cảnh báo | Sắp tới: <b>{next}</b>".format(
+                alerts=esc(macro_group.get("alert_count", 0)),
+                next=esc(next_line),
             )
         )
-        lines.extend(
-            group_lines
-        )
+    problem_groups = [
+        group
+        for group in groups
+        if group.get("status") in {"ERROR", "INVALID_DATA", "DATA_GAP", "STALE_DATA", "INSUFFICIENT_HISTORY"}
+    ]
+    if problem_groups:
+        lines.extend(["", "⚠️ <b>CẦN KIỂM TRA</b>"])
+        for group in problem_groups:
+            lines.append(
+                "• {symbol} {tf}: <code>{status}</code>".format(
+                    symbol=esc(group.get("symbol", "")),
+                    tf=esc(group.get("timeframe", "")),
+                    status=esc(status_label(group.get("status", ""))),
+                )
+            )
     lines.extend(
         [
             "",
-            "🛡️ <b>AN TOÀN</b>",
-            "• Gửi tín hiệu: <b>BẬT</b>",
-            "• Tự động vào lệnh: <b>TẮT</b>",
-            "• Chỉnh lệnh thật: <b>TẮT</b>",
-            "• Tiền thật: <b>TẮT</b>",
-            "",
-            "🔒 <b>CHỈ GỬI TÍN HIỆU / KHÔNG TỰ ĐẶT LỆNH</b>",
+            "🔒 <b>PAPER ONLY / KHÔNG TỰ ĐẶT LỆNH</b>",
             clock_line(scanned_utc),
         ]
     )
@@ -828,6 +779,37 @@ def format_liquidity_event_message(event: dict[str, Any]) -> str:
             clock_line(event.get("notify_time_utc")),
         ]
     )
+
+
+def format_macro_digest_message(events: list[dict[str, Any]]) -> str:
+    ordered = sorted(
+        events,
+        key=lambda item: (int(item.get("event_time_ms") or 0), -int(item.get("impact_score") or 0)),
+    )
+    lines = [
+        "🗓️⚠️ <b>CẢNH BÁO VĨ MÔ — {count} SỰ KIỆN</b>".format(count=len(ordered)),
+        "━━━━━━━━━━━━━━━━━━━━━━━━",
+    ]
+    for event in ordered:
+        priority = str(event.get("priority", "MEDIUM")).upper()
+        icon = "🔴" if priority == "CRITICAL" else "🟠" if priority == "HIGH" else "🟡"
+        lines.append(
+            "• {icon} <b>{title}</b> | {time} | {phase}".format(
+                icon=icon,
+                title=esc(macro_title_label(event)),
+                time=esc(compact_vn_label(event.get("event_time_utc"))),
+                phase=esc(event.get("phase", "n/a")),
+            )
+        )
+    lines.extend(
+        [
+            "",
+            "⚠️ Có thể tăng biến động, fakeout và quét thanh khoản quanh giờ công bố.",
+            "👀 <b>CHỈ THEO DÕI / KHÔNG PHẢI LỆNH TRADE</b>",
+            clock_line(ordered[0].get("notify_time_utc") if ordered else None),
+        ]
+    )
+    return "\n".join(lines)
 
 
 def format_macro_event_message(event: dict[str, Any]) -> str:

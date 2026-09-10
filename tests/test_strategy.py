@@ -180,12 +180,12 @@ class StrategyTests(unittest.TestCase):
             scan_interval_seconds=300,
             heartbeat_interval_seconds=3600,
         )
-        self.assertIn("💞📡 <b>BOT R26A LÕI CHẤT LƯỢNG KHỞI ĐỘNG — ĐANG THEO DÕI THỊ TRƯỜNG</b>", startup)
-        self.assertIn("📌 Chế độ: <b>CHỈ GỬI TÍN HIỆU PAPER</b>", startup)
-        self.assertIn("BTCUSDT 1h, 4h", startup)
-        self.assertIn("SOLUSDT 4h", startup)
-        self.assertIn("🧪 <b>CỬA TRADE A+</b>", startup)
-        self.assertIn("🔒 <b>CHỈ GỬI TÍN HIỆU / KHÔNG TỰ ĐẶT LỆNH</b>", startup)
+        self.assertIn("📡 <b>BOT R26A LÕI CHẤT LƯỢNG ĐÃ KHỞI ĐỘNG</b>", startup)
+        self.assertIn("📌 Chế độ: <b>PAPER / WATCH ONLY</b>", startup)
+        self.assertIn("BTC, ETH 1h/4h", startup)
+        self.assertIn("SOL, BNB 4h", startup)
+        self.assertIn("🧪 Trade A+: <b>KHÓA</b>", startup)
+        self.assertIn("🔒 <b>KHÔNG TỰ ĐẶT LỆNH / TIỀN THẬT ĐANG KHÓA</b>", startup)
 
         heartbeat = format_heartbeat_message(
             {
@@ -225,14 +225,13 @@ class StrategyTests(unittest.TestCase):
                 ],
             }
         )
-        self.assertIn("💞📡 <b>BOT R26A LÕI CHẤT LƯỢNG HEARTBEAT — ĐANG THEO DÕI THỊ TRƯỜNG</b>", heartbeat)
-        self.assertIn("<b>BTCUSDT 4h</b>", heartbeat)
-        self.assertIn("• Luật đã quét: <b>6</b>", heartbeat)
-        self.assertIn("• Độ rộng thị trường: <code>3/4</code> >= <code>2</code>", heartbeat)
-        self.assertIn("<b>ETHUSDT 1h</b>", heartbeat)
-        self.assertIn("• Chế độ dòng tiền: <code>R15C taker-flow quality</code>", heartbeat)
+        self.assertIn("💓 <b>BOT R26A LÕI CHẤT LƯỢNG — BÁO SỐNG</b>", heartbeat)
+        self.assertIn("Luật: <b>6</b>", heartbeat)
+        self.assertIn("🧪 <b>TRADE A+: KHÓA / WATCH ONLY</b>", heartbeat)
+        self.assertNotIn("• Độ rộng thị trường:", heartbeat)
         self.assertNotIn("n/a/n/a", heartbeat)
-        self.assertIn("🛡️ <b>AN TOÀN</b>", heartbeat)
+        self.assertIn("🔒 <b>PAPER ONLY / KHÔNG TỰ ĐẶT LỆNH</b>", heartbeat)
+        self.assertLess(len(heartbeat), 1600)
 
     def test_service_dedupes_same_signal_across_scans(self) -> None:
         start = 1_699_992_000_000

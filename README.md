@@ -95,7 +95,9 @@ macro events that can move USD liquidity, rates, DXY and crypto beta:
 - Optional Trading Economics consensus forecast if `TRADING_ECONOMICS_API_KEY` is configured
 
 R28A sends `WATCH ONLY` macro-risk alerts at `T-7D`, `T-24H`, `T-6H`, `T-1H`,
-`T-15M` and `LIVE` windows. These alerts do not create entries, exits, TP/SL or
+`T-15M` and `LIVE` windows. Alerts discovered in the same scan are delivered as
+one compact digest; the first digest is folded into the startup status message.
+These alerts do not create entries, exits, TP/SL or
 profitability claims. They are meant to reduce surprise around scheduled macro
 risk and to add forecast/consensus context when reliable data is available.
 
@@ -104,6 +106,10 @@ Unused premium diagnostics no longer delay decisions. `/status` includes scan
 duration, scan gap, per-feed freshness, pulse state, liquidity state and macro
 calendar state. Telegram displays candle open, close and notification times separately. Trade prices are
 checked again using a fresh ticker immediately before sending.
+
+Startup waits for the first scan and sends one compact operational summary instead
+of separate startup, macro and immediate-heartbeat messages. Hourly heartbeats omit
+per-market diagnostics unless a feed needs attention. Trade alerts remain separate.
 
 Pending deliveries are retried until expiry and marked `SENT` only after Telegram
 acknowledges them. Signal IDs and pulse IDs are deduplicated separately in the local
