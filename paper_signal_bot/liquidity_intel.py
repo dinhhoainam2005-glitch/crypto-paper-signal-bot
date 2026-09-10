@@ -12,17 +12,46 @@ LIQUIDITY_ID = "R27A_LIQUIDITY_INTEL_V1"
 LIQUIDITY_SYMBOLS = tuple(SYMBOL_BY_ASSET.values())
 HYPERLIQUID_COIN_BY_SYMBOL = {symbol: asset for asset, symbol in SYMBOL_BY_ASSET.items()}
 DEPTH_BANDS_BPS = (25, 50, 100)
-VOLUME_INTERVAL = "15m"
+LIQUIDITY_INTERVALS = ("1h", "4h", "1d")
+LIQUIDITY_MARKETS = tuple(
+    (symbol, timeframe)
+    for timeframe in LIQUIDITY_INTERVALS
+    for symbol in LIQUIDITY_SYMBOLS
+)
+VOLUME_INTERVAL = LIQUIDITY_INTERVALS[0]
+TIMEFRAME_PRIORITY = {"1h": 1, "4h": 2, "1d": 3}
 MOVE_THRESHOLDS = {
-    "BTCUSDT": 0.0035,
-    "ETHUSDT": 0.0045,
-    "SOLUSDT": 0.0065,
-    "BNBUSDT": 0.0055,
+    "1h": {
+        "BTCUSDT": 0.010,
+        "ETHUSDT": 0.012,
+        "SOLUSDT": 0.018,
+        "BNBUSDT": 0.015,
+    },
+    "4h": {
+        "BTCUSDT": 0.020,
+        "ETHUSDT": 0.024,
+        "SOLUSDT": 0.035,
+        "BNBUSDT": 0.030,
+    },
+    "1d": {
+        "BTCUSDT": 0.040,
+        "ETHUSDT": 0.050,
+        "SOLUSDT": 0.070,
+        "BNBUSDT": 0.060,
+    },
 }
+DEFAULT_EVENT_LAG_SECONDS = {"1h": 600, "4h": 900, "1d": 1800}
 
 
-def max_liquidity_event_lag_seconds() -> int:
-    return max(int(os.getenv("MAX_LIQUIDITY_EVENT_LAG_SECONDS", "600")), 60)
+def max_liquidity_event_lag_seconds(timeframe: str | None = None) -> int:
+    resolved_timeframe = timeframe or "1h"
+    configured = os.getenv(
+        f"MAX_LIQUIDITY_EVENT_LAG_SECONDS_{resolved_timeframe.upper()}"
+    )
+    if configured is None and resolved_timeframe == "1h":
+        configured = os.getenv("MAX_LIQUIDITY_EVENT_LAG_SECONDS")
+    default = DEFAULT_EVENT_LAG_SECONDS.get(resolved_timeframe, 600)
+    return max(int(configured or default), 60)
 
 
 def liquidity_alert_score_min() -> float:
@@ -214,7 +243,9 @@ def liquidation_proxy(volume: dict[str, Any], oi: dict[str, Any]) -> str:
     return "NEUTRAL"
 
 
-def classify_liquidity_event(features: dict[str, Any], symbol: str) -> tuple[bool, str, str, float]:
+def classify_liquidity_event(
+    features: dict[str, Any], symbol: str, timeframe: str = VOLUME_INTERVAL
+) -> tuple[bool, str, str, float]:
     ret = safe_float(features.get("return_fraction"))
     volz = safe_float(features.get("volume_z20"))
     imbalance = safe_float(features.get("binance_imbalance_100bps"))
@@ -223,7 +254,7 @@ def classify_liquidity_event(features: dict[str, Any], symbol: str) -> tuple[boo
     wall_intensity = safe_float(features.get("binance_wall_intensity"))
     oi_change = safe_float(features.get("open_interest_change_pct_12"))
     hl_diff = abs(safe_float(features.get("hyperliquid_mid_diff_bps")))
-    threshold = MOVE_THRESHOLDS.get(symbol, 0.005)
+    threshold = MOVE_THRESHOLDS.get(timeframe, {}).get(symbol, 0.01)
     move_ratio = abs(ret) / threshold if threshold > 0.0 else 0.0
     score = 0.0
     score += min(move_ratio, 3.0) * 16.0
@@ -268,80 +299,125 @@ def evaluate_liquidity_intel(
     events: list[dict[str, Any]] = []
     errors = errors or {}
     for symbol in LIQUIDITY_SYMBOLS:
-        volume = volume_metrics(klines_cache, symbol=symbol, now_ms=now_ms)
         binance_book = book_metrics(depth_cache.get(symbol), source="binance", symbol=symbol)
         oi = open_interest_metrics(open_interest_cache.get(symbol), symbol=symbol)
         hyper_book = book_metrics(hyperliquid_cache.get(symbol), source="hyperliquid", symbol=symbol)
         hyper = hyperliquid_alignment(binance_book, hyper_book)
-        data_ok = volume.get("status") == "OK" and binance_book.get("status") == "OK"
-        features = {
-            "price": volume.get("price"),
-            "return_fraction": volume.get("return_fraction"),
-            "return_pct": volume.get("return_pct"),
-            "volume_z20": volume.get("volume_z20"),
-            "taker_imbalance": volume.get("taker_imbalance"),
-            "quote_volume": volume.get("quote_volume"),
-            "binance_mid": binance_book.get("mid"),
-            "binance_spread_bps": binance_book.get("spread_bps"),
-            "binance_bid_depth_100bps": binance_book.get("bid_depth_100bps"),
-            "binance_ask_depth_100bps": binance_book.get("ask_depth_100bps"),
-            "binance_imbalance_100bps": binance_book.get("imbalance_100bps"),
-            "binance_wall_side": binance_book.get("wall_side"),
-            "binance_wall_price": binance_book.get("wall_price"),
-            "binance_wall_quote": binance_book.get("wall_quote"),
-            "binance_wall_distance_bps": binance_book.get("wall_distance_bps"),
-            "binance_wall_intensity": binance_book.get("wall_intensity"),
-            "open_interest_status": oi.get("status"),
-            "latest_open_interest_value": oi.get("latest_open_interest_value"),
-            "open_interest_change_pct_12": oi.get("open_interest_change_pct_12"),
-            "open_interest_change_pct_1": oi.get("open_interest_change_pct_1"),
-            **hyper,
-        }
-        features["liquidation_pressure_proxy"] = liquidation_proxy(volume, oi) if data_ok else "UNKNOWN"
-        should_alert, reason, side, score = classify_liquidity_event(features, symbol) if data_ok else (False, "DATA_NOT_READY", "NONE", 0.0)
-        status = "LIQUIDITY_EVENT" if should_alert else "NO_EVENT" if data_ok else "DATA_NOT_READY"
-        group = {
-            "symbol": symbol,
-            "timeframe": VOLUME_INTERVAL,
-            "status": status,
-            "data_state": volume.get("data_state", "UNKNOWN") if data_ok else "DEGRADED",
-            "latest_candle_close_utc": volume.get("latest_candle_close_utc"),
-            "candidate_count": 1,
-            "binance_depth_state": binance_book.get("status"),
-            "open_interest_state": oi.get("status"),
-            "hyperliquid_state": hyper.get("hyperliquid_state"),
-            "error": errors.get(("liquidity", symbol)),
-            "features": features,
-        }
-        groups.append(group)
-        close_ms = int(volume.get("latest_candle_close_ms") or 0)
-        if not should_alert or close_ms <= 0:
-            continue
-        expiry_ms = close_ms + max_liquidity_event_lag_seconds() * 1000
-        if now_ms > expiry_ms:
-            group["status"] = "EXPIRED_EVENT"
-            continue
-        event = {
-            "event_id": f"{LIQUIDITY_ID}:{symbol}:{side}:{close_ms}:{reason}",
-            "event_type": "LIQUIDITY_MAP",
-            "engine_id": LIQUIDITY_ID,
-            "symbol": symbol,
-            "timeframe": VOLUME_INTERVAL,
-            "side": side,
-            "reason": reason,
-            "score": round(score, 2),
-            "confidence": "HIGH" if score >= 78.0 else "MEDIUM" if score >= 64.0 else "LOW",
-            "candle_close_time_ms": close_ms,
-            "candle_close_time_utc": volume.get("latest_candle_close_utc"),
-            "detected_utc": ms_to_iso(now_ms),
-            "notify_time_utc": ms_to_iso(now_ms),
-            "expires_at_ms": expiry_ms,
-            "watch_only": True,
-            "paper_only": True,
-            "auto_trade": False,
-            "delivery_status": "PENDING",
-            "features": features,
-        }
-        events.append(event)
-    events.sort(key=lambda item: (-safe_float(item.get("score")), item["event_id"]))
-    return {"engine_id": LIQUIDITY_ID, "events": events, "groups": groups}
+        symbol_events: list[dict[str, Any]] = []
+        for timeframe in LIQUIDITY_INTERVALS:
+            volume = volume_metrics(
+                klines_cache,
+                symbol=symbol,
+                now_ms=now_ms,
+                interval=timeframe,
+            )
+            data_ok = volume.get("status") == "OK" and binance_book.get("status") == "OK"
+            features = {
+                "price": volume.get("price"),
+                "return_fraction": volume.get("return_fraction"),
+                "return_pct": volume.get("return_pct"),
+                "volume_z20": volume.get("volume_z20"),
+                "taker_imbalance": volume.get("taker_imbalance"),
+                "quote_volume": volume.get("quote_volume"),
+                "binance_mid": binance_book.get("mid"),
+                "binance_spread_bps": binance_book.get("spread_bps"),
+                "binance_bid_depth_100bps": binance_book.get("bid_depth_100bps"),
+                "binance_ask_depth_100bps": binance_book.get("ask_depth_100bps"),
+                "binance_imbalance_100bps": binance_book.get("imbalance_100bps"),
+                "binance_wall_side": binance_book.get("wall_side"),
+                "binance_wall_price": binance_book.get("wall_price"),
+                "binance_wall_quote": binance_book.get("wall_quote"),
+                "binance_wall_distance_bps": binance_book.get("wall_distance_bps"),
+                "binance_wall_intensity": binance_book.get("wall_intensity"),
+                "open_interest_status": oi.get("status"),
+                "latest_open_interest_value": oi.get("latest_open_interest_value"),
+                "open_interest_change_pct_12": oi.get("open_interest_change_pct_12"),
+                "open_interest_change_pct_1": oi.get("open_interest_change_pct_1"),
+                **hyper,
+            }
+            features["liquidation_pressure_proxy"] = (
+                liquidation_proxy(volume, oi) if data_ok else "UNKNOWN"
+            )
+            should_alert, reason, side, score = (
+                classify_liquidity_event(features, symbol, timeframe)
+                if data_ok
+                else (False, "DATA_NOT_READY", "NONE", 0.0)
+            )
+            status = (
+                "LIQUIDITY_EVENT"
+                if should_alert
+                else "NO_EVENT"
+                if data_ok
+                else "DATA_NOT_READY"
+            )
+            group = {
+                "symbol": symbol,
+                "timeframe": timeframe,
+                "status": status,
+                "data_state": volume.get("data_state", "UNKNOWN") if data_ok else "DEGRADED",
+                "latest_candle_close_utc": volume.get("latest_candle_close_utc"),
+                "candidate_count": 1,
+                "binance_depth_state": binance_book.get("status"),
+                "open_interest_state": oi.get("status"),
+                "hyperliquid_state": hyper.get("hyperliquid_state"),
+                "error": errors.get(("liquidity", symbol)),
+                "features": features,
+            }
+            groups.append(group)
+            close_ms = int(volume.get("latest_candle_close_ms") or 0)
+            if not should_alert or close_ms <= 0:
+                continue
+            expiry_ms = close_ms + max_liquidity_event_lag_seconds(timeframe) * 1000
+            if now_ms > expiry_ms:
+                group["status"] = "EXPIRED_EVENT"
+                continue
+            symbol_events.append(
+                {
+                    "event_id": (
+                        f"{LIQUIDITY_ID}:{symbol}:{timeframe}:{side}:{close_ms}:{reason}"
+                    ),
+                    "event_type": "LIQUIDITY_MAP",
+                    "engine_id": LIQUIDITY_ID,
+                    "symbol": symbol,
+                    "timeframe": timeframe,
+                    "side": side,
+                    "reason": reason,
+                    "score": round(score, 2),
+                    "confidence": (
+                        "HIGH" if score >= 78.0 else "MEDIUM" if score >= 64.0 else "LOW"
+                    ),
+                    "candle_close_time_ms": close_ms,
+                    "candle_close_time_utc": volume.get("latest_candle_close_utc"),
+                    "detected_utc": ms_to_iso(now_ms),
+                    "notify_time_utc": ms_to_iso(now_ms),
+                    "expires_at_ms": expiry_ms,
+                    "watch_only": True,
+                    "paper_only": True,
+                    "auto_trade": False,
+                    "delivery_status": "PENDING",
+                    "features": features,
+                }
+            )
+        if symbol_events:
+            events.append(
+                max(
+                    symbol_events,
+                    key=lambda item: (
+                        TIMEFRAME_PRIORITY.get(str(item.get("timeframe")), 0),
+                        safe_float(item.get("score")),
+                    ),
+                )
+            )
+    events.sort(
+        key=lambda item: (
+            -safe_float(item.get("score")),
+            -TIMEFRAME_PRIORITY.get(str(item.get("timeframe")), 0),
+            item["event_id"],
+        )
+    )
+    return {
+        "engine_id": LIQUIDITY_ID,
+        "timeframes": list(LIQUIDITY_INTERVALS),
+        "events": events,
+        "groups": groups,
+    }

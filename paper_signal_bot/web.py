@@ -14,7 +14,7 @@ from urllib.parse import parse_qs, urlparse
 
 from .binance_client import BinanceFuturesClient
 from .hyperliquid_client import HyperliquidClient
-from .liquidity_intel import LIQUIDITY_ID, LIQUIDITY_SYMBOLS, evaluate_liquidity_intel, max_liquidity_event_lag_seconds
+from .liquidity_intel import LIQUIDITY_ID, LIQUIDITY_INTERVALS, LIQUIDITY_MARKETS, LIQUIDITY_SYMBOLS, evaluate_liquidity_intel, max_liquidity_event_lag_seconds
 from .macro_events import MACRO_ID, evaluate_macro_calendar, fetch_macro_calendar
 from .storage import JsonStore
 from .market_pulse import MAX_PULSE_LAG_SECONDS, PULSE_ID, PULSE_MARKETS, THRESHOLDS, evaluate_market_pulses
@@ -259,7 +259,9 @@ class SignalService:
         self.store = JsonStore()
         self.lock = threading.Lock()
         self.groups = candidate_groups()
-        self.context_markets = tuple(dict.fromkeys((*R26A_CONTEXT_MARKETS, *PULSE_MARKETS)))
+        self.context_markets = tuple(
+            dict.fromkeys((*R26A_CONTEXT_MARKETS, *PULSE_MARKETS, *LIQUIDITY_MARKETS))
+        )
         self.session_floor_ms: int | None = None
         self.liquidity_enabled = env_enabled("LIQUIDITY_INTEL_ENABLED", "true")
         self.macro_enabled = env_enabled("MACRO_EVENT_WATCH_ENABLED", "true")
@@ -712,11 +714,15 @@ class Handler(BaseHTTPRequestHandler):
                         "sources": [
                             "Binance USD-M order book depth",
                             "Binance USD-M open-interest history",
-                            "Binance 15m volume/taker flow",
+                            "Binance 1h/4h/1d volume and taker flow",
                             "Hyperliquid L2 book cross-check",
                         ],
                         "markets": list(LIQUIDITY_SYMBOLS),
-                        "max_close_to_notify_seconds": max_liquidity_event_lag_seconds(),
+                        "timeframes": list(LIQUIDITY_INTERVALS),
+                        "max_close_to_notify_seconds": {
+                            timeframe: max_liquidity_event_lag_seconds(timeframe)
+                            for timeframe in LIQUIDITY_INTERVALS
+                        },
                         "max_events_per_scan": effective_liquidity_events_per_scan(),
                         "performance_metrics": None,
                     },

@@ -66,7 +66,7 @@ R27A Liquidity Intel watches BTC/ETH/SOL/BNB with public market data:
 
 - Binance USD-M order book depth as a near-price liquidity heatmap proxy
 - Binance USD-M open-interest history as a liquidation-pressure proxy
-- Binance 15m volume, range and taker-flow imbalance
+- Binance 1h/4h/1d volume, range and taker-flow imbalance
 - Hyperliquid L2 book as a cross-venue liquidity map check
 
 R27A alerts are also labelled `WATCH ONLY`. They are not backtested trade entries,
@@ -74,6 +74,8 @@ do not include TP/SL and do not claim to be a vendor-grade liquidation heatmap. 
 true Hyperliquid liquidation-event feed or Coinglass/Hyblock-style liquidation
 heatmap can be connected later as a provider if an API key/data subscription is
 available.
+Only 1h, 4h and 1d liquidity-map alerts are emitted. When several timeframes alert
+for the same symbol in one scan, only the largest timeframe is sent.
 
 R29Q is a local, forward-only research recorder. It does not alter production
 signals. Once per minute it stores raw Binance USD-M futures L2/OI/mark/1m-volume
@@ -107,7 +109,8 @@ These alerts do not create entries, exits, TP/SL or
 profitability claims. They are meant to reduce surprise around scheduled macro
 risk and to add forecast/consensus context when reliable data is available.
 
-The scanner fetches 12 kline feeds, then optional R27A depth/OI/Hyperliquid feeds.
+The scanner fetches 16 kline feeds: 12 pulse feeds on 15m/1h/4h plus four
+liquidity-intel feeds on 1d. It then fetches optional R27A depth/OI/Hyperliquid feeds.
 Unused premium diagnostics no longer delay decisions. `/status` includes scan
 duration, scan gap, per-feed freshness, pulse state, liquidity state and macro
 calendar state. Telegram displays candle open, close and notification times separately. Trade prices are
@@ -198,6 +201,8 @@ MAX_MARKET_PULSE_LAG_SECONDS=600
 MAX_MARKET_PULSE_EVENTS_PER_SCAN=12
 LIQUIDITY_INTEL_ENABLED=true
 MAX_LIQUIDITY_EVENT_LAG_SECONDS=600
+MAX_LIQUIDITY_EVENT_LAG_SECONDS_4H=900
+MAX_LIQUIDITY_EVENT_LAG_SECONDS_1D=1800
 MAX_LIQUIDITY_EVENTS_PER_SCAN=4
 LIQUIDITY_ALERT_SCORE_MIN=55
 HYPERLIQUID_API_BASE_URL=https://api.hyperliquid.xyz

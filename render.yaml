@@ -34,6 +34,10 @@ services:
         value: "true"
       - key: MAX_LIQUIDITY_EVENT_LAG_SECONDS
         value: "600"
+      - key: MAX_LIQUIDITY_EVENT_LAG_SECONDS_4H
+        value: "900"
+      - key: MAX_LIQUIDITY_EVENT_LAG_SECONDS_1D
+        value: "1800"
       - key: MAX_LIQUIDITY_EVENTS_PER_SCAN
         value: "4"
       - key: LIQUIDITY_ALERT_SCORE_MIN

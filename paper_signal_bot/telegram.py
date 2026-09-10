@@ -13,6 +13,25 @@ def env_enabled(name: str, default: str = "true") -> bool:
     return os.getenv(name, default).strip().lower() not in {"0", "false", "no", "off"}
 
 
+def liquidity_symbol_readiness(groups: list[dict[str, Any]]) -> tuple[int, int]:
+    expected_timeframes = {"1h", "4h", "1d"}
+    groups_by_symbol: dict[str, list[dict[str, Any]]] = {}
+    for group in groups:
+        symbol = str(group.get("symbol") or "").strip()
+        if symbol:
+            groups_by_symbol.setdefault(symbol, []).append(group)
+    ready = 0
+    for symbol_groups in groups_by_symbol.values():
+        timeframes = {str(group.get("timeframe") or "") for group in symbol_groups}
+        healthy = all(
+            group.get("data_state") == "FRESH"
+            and group.get("status") not in {"DATA_NOT_READY", "ERROR"}
+            for group in symbol_groups
+        )
+        ready += int(expected_timeframes.issubset(timeframes) and healthy)
+    return ready, len(groups_by_symbol)
+
+
 def telegram_configured() -> bool:
     token = os.getenv("TELEGRAM_BOT_TOKEN", "").strip()
     chat_id = os.getenv("TELEGRAM_CHAT_ID", "").strip()
@@ -389,10 +408,7 @@ def format_startup_message(
         and group.get("status") not in {"ERROR", "INVALID_DATA", "DATA_GAP", "INSUFFICIENT_HISTORY"}
         for group in pulse_groups
     )
-    liquidity_ready = sum(
-        group.get("data_state") == "FRESH" and group.get("status") not in {"DATA_NOT_READY", "ERROR"}
-        for group in liquidity_groups
-    )
+    liquidity_ready, liquidity_total = liquidity_symbol_readiness(liquidity_groups)
     status = "ONLINE / DỮ LIỆU SẴN SÀNG" if scan_ok else "ONLINE / ĐANG KIỂM TRA DỮ LIỆU"
     lines = [
         f"📡 <b>{bot_label(strategy_id).upper()} ĐÃ KHỞI ĐỘNG</b>",
@@ -404,11 +420,11 @@ def format_startup_message(
             heartbeat=esc(interval_label(heartbeat_interval_seconds)),
         ),
         "📊 Tín hiệu: <b>BTC, ETH 1h/4h</b> | <b>SOL, BNB 4h</b>",
-        "🔎 Theo dõi: xung lực <b>{pulse}/{pulse_total}</b> | thanh khoản <b>{liq}/{liq_total}</b> feed".format(
+        "🔎 Theo dõi: xung lực <b>{pulse}/{pulse_total}</b> | thanh khoản <b>{liq}/{liq_total}</b> coin (1h/4h/1d)".format(
             pulse=esc(pulse_ready),
             pulse_total=esc(len(pulse_groups) or 12),
             liq=esc(liquidity_ready),
-            liq_total=esc(len(liquidity_groups) or 4),
+            liq_total=esc(liquidity_total or 4),
         ),
         history_line,
         "📋 Forward: <code>{days} ngày</code> | <code>{trades} lệnh đóng</code> (đang giám sát)".format(
@@ -532,16 +548,16 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
         fresh = sum(g.get("data_state") == "FRESH" and g.get("status") not in {"INSUFFICIENT_HISTORY", "INVALID_DATA", "DATA_GAP"} for g in pulse_groups)
         lines.append(f"📡 Xung lực: <b>{fresh}/{len(pulse_groups)}</b> feed sẵn sàng")
     if liquidity_groups:
-        ready = sum(g.get("data_state") == "FRESH" and g.get("status") not in {"DATA_NOT_READY", "ERROR"} for g in liquidity_groups)
+        ready, total = liquidity_symbol_readiness(liquidity_groups)
         strongest = max(
             liquidity_groups,
             key=lambda group: float((group.get("features") or {}).get("binance_wall_intensity") or 0.0),
         )
         strong_features = strongest.get("features") or {}
         lines.append(
-            "🧲 Thanh khoản: <b>{ready}/{total}</b> feed | Tường mạnh: <b>{symbol} {side}</b> @ <code>{price}</code>".format(
+            "🧲 Thanh khoản: <b>{ready}/{total}</b> coin | TF <b>1h/4h/1d</b> | Tường mạnh: <b>{symbol} {side}</b> @ <code>{price}</code>".format(
                 ready=esc(ready),
-                total=esc(len(liquidity_groups)),
+                total=esc(total),
                 symbol=esc(strongest.get("symbol", "n/a")),
                 side=esc(strong_features.get("binance_wall_side", "n/a")),
                 price=fmt_float(strong_features.get("binance_wall_price"), 4),
@@ -755,8 +771,9 @@ def format_liquidity_event_message(event: dict[str, Any]) -> str:
                 score=fmt_float(event.get("score"), 2),
                 confidence=esc(confidence_label(event.get("confidence", "n/a"))),
             ),
-            "• Giá: <code>{price}</code> | Biến động 15m: <code>{move}</code>".format(
+            "• Giá: <code>{price}</code> | Biến động {tf}: <code>{move}</code>".format(
                 price=fmt_float(features.get("price"), 4),
+                tf=esc(event.get("timeframe", "n/a")),
                 move=fmt_signed_bps(safe_bps(features.get("return_fraction"))),
             ),
             "• Z khối lượng 20: <code>{volz}</code> | Lệch taker: <code>{taker}</code>".format(
