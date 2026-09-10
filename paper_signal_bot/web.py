@@ -233,6 +233,7 @@ def compact_scan(scan_result: dict[str, Any]) -> dict[str, Any]:
         "scan_duration_seconds": scan.get("scan_duration_seconds"),
         "scan_gap_seconds": scan.get("scan_gap_seconds"),
         "trade_readiness": scan.get("trade_readiness", {}),
+        "report_metrics": PORTFOLIO_METRICS,
         "groups": groups,
     }
 
@@ -949,6 +950,7 @@ def _scan_notify_once(
                         heartbeat_interval_seconds=heartbeat_interval_seconds,
                         scan_summary=scan_summary,
                         macro_events=macro_batch,
+                        historical_metrics=PORTFOLIO_METRICS,
                     )
                 )
                 if startup_result.get("ok"):

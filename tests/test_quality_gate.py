@@ -65,6 +65,31 @@ class QualityGateTests(unittest.TestCase):
         self.assertGreaterEqual(result["metrics"]["win_rate"], 0.70)
         self.assertGreaterEqual(result["metrics"]["probability_positive"], 0.80)
 
+    def test_drawdown_applies_signal_risk_fraction(self) -> None:
+        at = datetime(2026, 12, 20, tzinfo=timezone.utc)
+        started = at - timedelta(days=2)
+        state = {
+            "created_utc": started.isoformat(),
+            "forward_evidence_started_utc": started.isoformat(),
+            "scan_count": 1,
+            "signals": [
+                {
+                    "signal_id": "loss",
+                    "symbol": "BTCUSDT",
+                    "timeframe": "4h",
+                    "side": "LONG",
+                    "status": "PAPER_CLOSED",
+                    "actual_exit_time_ms": int(started.timestamp() * 1000),
+                    "net_return_12bps": -0.20,
+                    "net_return_20bps": -0.21,
+                    "risk_fraction": 0.25,
+                }
+            ],
+        }
+        result = evaluate_trade_readiness(state, at_ms=int(at.timestamp() * 1000))
+        self.assertAlmostEqual(result["metrics"]["max_drawdown_pct"], -5.0)
+        self.assertTrue(result["metrics"]["risk_weighting_applied"])
+
     def test_settlement_uses_planned_exit_open_and_cost_stress(self) -> None:
         exit_time_ms = 2_000_000
         position = {

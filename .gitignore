@@ -4,6 +4,7 @@ __pycache__/
 .env
 .venv/
 venv/
+.codex_deps/
 data/
 r*_output/
 r14h_output/_pycache_r14h/

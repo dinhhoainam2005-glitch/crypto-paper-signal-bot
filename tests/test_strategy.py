@@ -7,6 +7,7 @@ from pathlib import Path
 from paper_signal_bot.storage import JsonStore
 from paper_signal_bot.strategy import (
     INTERVAL_MS,
+    PORTFOLIO_METRICS,
     R26A_CONTEXT_MARKETS,
     R26A_SCAN_MARKETS,
     STRATEGY_ID,
@@ -179,12 +180,15 @@ class StrategyTests(unittest.TestCase):
             strategy_id=STRATEGY_ID,
             scan_interval_seconds=300,
             heartbeat_interval_seconds=3600,
+            historical_metrics=PORTFOLIO_METRICS,
         )
         self.assertIn("📡 <b>BOT R26A LÕI CHẤT LƯỢNG ĐÃ KHỞI ĐỘNG</b>", startup)
         self.assertIn("📌 Chế độ: <b>PAPER / WATCH ONLY</b>", startup)
         self.assertIn("BTC, ETH 1h/4h", startup)
         self.assertIn("SOL, BNB 4h", startup)
         self.assertIn("🧪 Trade A+: <b>KHÓA</b>", startup)
+        self.assertIn("Backtest R31A: <b>CHƯA ĐẠT (8/15)</b>", startup)
+        self.assertIn("(đang giám sát)", startup)
         self.assertIn("🔒 <b>KHÔNG TỰ ĐẶT LỆNH / TIỀN THẬT ĐANG KHÓA</b>", startup)
 
         heartbeat = format_heartbeat_message(

@@ -357,6 +357,7 @@ def format_startup_message(
     heartbeat_interval_seconds: int,
     scan_summary: dict[str, Any] | None = None,
     macro_events: list[dict[str, Any]] | None = None,
+    historical_metrics: dict[str, Any] | None = None,
 ) -> str:
     summary = scan_summary or {}
     groups = summary.get("groups", [])
@@ -364,6 +365,21 @@ def format_startup_message(
     liquidity_groups = summary.get("liquidity_groups", [])
     readiness = summary.get("trade_readiness") or {}
     metrics = readiness.get("metrics") or {}
+    history = historical_metrics or summary.get("report_metrics") or {}
+    history_passed = int(history.get("historical_checks_passed") or 0)
+    history_total = int(history.get("historical_checks_total") or 0)
+    history_label = "ĐẠT" if history.get("historical_gate_pass") else "CHƯA ĐẠT"
+    trade_a_status = "MỞ" if readiness.get("trade_a_plus_eligible") else "KHÓA"
+    history_line = (
+        "🧪 Trade A+: <b>{status}</b> | Backtest R31A: <b>{history} ({passed}/{total})</b>".format(
+            status=trade_a_status,
+            history=history_label,
+            passed=esc(history_passed),
+            total=esc(history_total),
+        )
+        if history_total
+        else f"🧪 Trade A+: <b>{trade_a_status}</b>"
+    )
     scan_ok = bool(groups) and all(
         group.get("status") not in {"ERROR", "INVALID_DATA", "DATA_GAP", "STALE_DATA", "INSUFFICIENT_HISTORY"}
         for group in groups
@@ -394,8 +410,8 @@ def format_startup_message(
             liq=esc(liquidity_ready),
             liq_total=esc(len(liquidity_groups) or 4),
         ),
-        "🧪 Trade A+: <b>{status}</b> | Forward <code>{days}/90d</code> | Đã đóng <code>{trades}/150</code>".format(
-            status="MỞ" if readiness.get("trade_a_plus_eligible") else "KHÓA",
+        history_line,
+        "📋 Forward: <code>{days} ngày</code> | <code>{trades} lệnh đóng</code> (đang giám sát)".format(
             days=fmt_float(metrics.get("forward_days"), 1),
             trades=esc(metrics.get("closed_trades", 0)),
         ),
@@ -455,7 +471,20 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
     rules_scanned = sum(int(float(group.get("candidate_count") or 0)) for group in groups)
     readiness = scan_summary.get("trade_readiness") or {}
     readiness_metrics = readiness.get("metrics") or {}
+    history = scan_summary.get("report_metrics") or {}
+    history_passed = int(history.get("historical_checks_passed") or 0)
+    history_total = int(history.get("historical_checks_total") or 0)
+    history_label = "ĐẠT" if history.get("historical_gate_pass") else "CHƯA ĐẠT"
     readiness_status = "ĐỦ ĐIỀU KIỆN TRADE A+" if readiness.get("trade_a_plus_eligible") else "KHÓA / WATCH ONLY"
+    history_suffix = (
+        " | R31A: <b>{history} {passed}/{total}</b>".format(
+            history=history_label,
+            passed=esc(history_passed),
+            total=esc(history_total),
+        )
+        if history_total
+        else ""
+    )
     healthy_markets = sum(
         group.get("data_state") == "FRESH"
         and group.get("status") not in {"ERROR", "INVALID_DATA", "DATA_GAP", "STALE_DATA", "INSUFFICIENT_HISTORY"}
@@ -488,8 +517,11 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
             closed=esc(scan_summary.get("closed_signal_count", 0)),
         ),
         "",
-        "🧪 <b>TRADE A+: {status}</b>".format(status=esc(readiness_status)),
-        "• Forward <code>{days}/90d</code> | Đóng <code>{trades}/150</code> | Win <code>{win}</code> | PF12 <code>{pf12}</code>".format(
+        "🧪 <b>TRADE A+: {status}</b>{history_suffix}".format(
+            status=esc(readiness_status),
+            history_suffix=history_suffix,
+        ),
+        "• Forward <code>{days} ngày</code> | Đóng <code>{trades}</code> | Win <code>{win}</code> | PF12 <code>{pf12}</code>".format(
             days=fmt_float(readiness_metrics.get("forward_days"), 1),
             trades=esc(readiness_metrics.get("closed_trades", 0)),
             win=esc(percent(readiness_metrics.get("win_rate"))),

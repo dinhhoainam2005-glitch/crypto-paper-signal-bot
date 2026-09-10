@@ -10,7 +10,7 @@ This repository is research-to-paper only.
 - Exchange order placement: not implemented
 - Telegram alerts: Vietnamese paper notifications only
 - Render target: Python web service with an internal paper-scan loop
-- Trade A+ gate: locked until untouched forward evidence passes every R30A rule
+- Trade A+ gate: locked because the exact R31A production-parity audit fails the historical quality gate; forward collection remains observational
 
 Current paper strategy:
 
@@ -20,16 +20,22 @@ Current paper strategy:
 - Directions: quality-filtered BTC/ETH/SOL/BNB LONG sleeves plus R15C ETH 1h SHORT taker-flow quality candidates
 - Gate: breadth-confirmed momentum/pullback triggers plus strict R15C volume/flow/realized-vol filters
 - Risk model: paper signal risk fraction `0.25` per position, max 4 positions per sleeve
-- Research status: R26A quality-core expansion selected for paper observation only
+- Research status: R26A remains a paper observation core and is not approved for Trade A+
 - Freshness guard: suppress paper trade alerts when entry is older than 10 minutes or price has already moved more than 40 bps in the signal direction
 
-Historical R26A report metrics (reference only, never sufficient for Trade A+ promotion):
+Verified R31A production-parity metrics (27 exact runtime candidates, 288/288 parity checks, 12 bps costs):
 
 | Sample | Trades/week | PF | Sharpe | Win | Max DD % |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Frozen | 5.605 | 1.608 | 2.834 | 55.6% | -9.13 |
-| Validation | 6.923 | 1.641 | 3.488 | 54.1% | -8.52 |
-| Recent | 4.607 | 11.371 | 8.972 | 77.8% | -1.08 |
+| Frozen 2025-07/2026 | 6.042 | 1.490 | 2.465 | 55.2% | -9.61 |
+| Validation 2024 | 7.287 | 1.566 | 3.212 | 53.0% | -9.98 |
+| Recent 2026-01..07 | 5.646 | 1.439 | 2.399 | 57.9% | -5.96 |
+
+Max drawdown in this table applies the configured `0.25` risk fraction. R31A
+passes 8 of 15 historical robustness checks and therefore fails promotion.
+The forward counters are evidence collection, not a countdown that can override
+the failed historical gate. R31B route reduction and R31C true-depth confirmation
+were also rejected on their frozen holdouts.
 
 R30A independently settles every paper position at the planned exit candle open
 and records gross return, net return after 12 bps and stress return after 20 bps.

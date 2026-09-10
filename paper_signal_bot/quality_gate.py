@@ -66,6 +66,15 @@ def _closed_trades(state: dict[str, Any]) -> list[dict[str, Any]]:
     return sorted(trades, key=lambda item: int(item.get("actual_exit_time_ms", 0)))
 
 
+def _risk_weighted_return(item: dict[str, Any], key: str) -> float:
+    try:
+        risk_fraction = float(item.get("risk_fraction", 1.0))
+    except (TypeError, ValueError):
+        risk_fraction = 1.0
+    risk_fraction = min(max(risk_fraction, 0.0), 1.0)
+    return float(item[key]) * risk_fraction
+
+
 def _profit_factor(returns: list[float]) -> float:
     gross_win = sum(value for value in returns if value > 0.0)
     gross_loss = abs(sum(value for value in returns if value < 0.0))
@@ -115,7 +124,7 @@ def _block_bootstrap_probability_positive(returns: list[float], iterations: int)
 def _symbol_profit_contribution(trades: list[dict[str, Any]]) -> float:
     by_symbol: dict[str, float] = defaultdict(float)
     for item in trades:
-        by_symbol[str(item.get("symbol", "UNKNOWN"))] += float(item["net_return_12bps"])
+        by_symbol[str(item.get("symbol", "UNKNOWN"))] += _risk_weighted_return(item, "net_return_12bps")
     total = sum(by_symbol.values())
     if total <= 0.0:
         return 1.0
@@ -138,8 +147,8 @@ def _cell_summaries(trades: list[dict[str, Any]], rules: dict[str, Any]) -> dict
         grouped[_cell_key(item)].append(item)
     summaries: dict[str, dict[str, Any]] = {}
     for key, items in sorted(grouped.items()):
-        returns_12 = [float(item["net_return_12bps"]) for item in items]
-        returns_20 = [float(item["net_return_20bps"]) for item in items]
+        returns_12 = [_risk_weighted_return(item, "net_return_12bps") for item in items]
+        returns_20 = [_risk_weighted_return(item, "net_return_20bps") for item in items]
         win_rate = sum(value > 0.0 for value in returns_12) / len(items)
         pf12 = _profit_factor(returns_12)
         pf20 = _profit_factor(returns_20)
@@ -179,8 +188,8 @@ def evaluate_trade_readiness(
 ) -> dict[str, Any]:
     rules = {**DEFAULT_POLICY, **(policy or {})}
     trades = _closed_trades(state)
-    returns_12 = [float(item["net_return_12bps"]) for item in trades]
-    returns_20 = [float(item["net_return_20bps"]) for item in trades]
+    returns_12 = [_risk_weighted_return(item, "net_return_12bps") for item in trades]
+    returns_20 = [_risk_weighted_return(item, "net_return_20bps") for item in trades]
     started = _parse_utc(state.get("forward_evidence_started_utc") or state.get("created_utc"))
     at = datetime.fromtimestamp(at_ms / 1000.0, tz=timezone.utc)
     forward_days = max((at - started).total_seconds() / 86400.0, 0.0) if started else 0.0
@@ -356,6 +365,7 @@ def evaluate_trade_readiness(
             "signal_delivery_rate": round(delivery_rate, 6),
             "scan_coverage": round(scan_coverage, 6),
             "durable_state_configured": bool(state.get("durable_state_configured")),
+            "risk_weighting_applied": True,
         },
         "cell_metrics": cell_metrics,
         "eligible_cells": [key for key, value in cell_metrics.items() if value["eligible"]],
