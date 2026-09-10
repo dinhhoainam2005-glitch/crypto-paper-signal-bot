@@ -110,6 +110,55 @@ class BinanceFuturesClient:
     def premium_index_klines(self, symbol: str, interval: str, limit: int = 80) -> list[list[Any]]:
         return self._get("/fapi/v1/premiumIndexKlines", {"symbol": symbol, "interval": interval, "limit": limit})
 
+    def premium_index_klines_range(
+        self,
+        symbol: str,
+        interval: str,
+        start_time_ms: int,
+        end_time_ms: int,
+        limit: int = 1500,
+    ) -> list[list[Any]]:
+        rows: list[list[Any]] = []
+        cursor = int(start_time_ms)
+        while cursor <= end_time_ms:
+            page = self._get(
+                "/fapi/v1/premiumIndexKlines",
+                {
+                    "symbol": symbol,
+                    "interval": interval,
+                    "startTime": cursor,
+                    "endTime": int(end_time_ms),
+                    "limit": limit,
+                },
+            )
+            if not page:
+                break
+            rows.extend(page)
+            next_cursor = int(page[-1][0]) + 60 * 60 * 1000
+            if next_cursor <= cursor:
+                break
+            cursor = next_cursor
+            if len(page) < limit:
+                break
+        return list({int(row[0]): row for row in rows}.values())
+
+    def funding_rate_history(
+        self,
+        symbol: str,
+        start_time_ms: int,
+        end_time_ms: int,
+        limit: int = 1000,
+    ) -> list[dict[str, Any]]:
+        return self._get(
+            "/fapi/v1/fundingRate",
+            {
+                "symbol": symbol,
+                "startTime": int(start_time_ms),
+                "endTime": int(end_time_ms),
+                "limit": limit,
+            },
+        )
+
     def derivatives_state_available(self, symbol: str) -> bool:
         try:
             open_interest = self._get("/fapi/v1/openInterest", {"symbol": symbol})

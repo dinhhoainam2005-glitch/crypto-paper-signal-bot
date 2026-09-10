@@ -1,6 +1,6 @@
 # Crypto Paper Signal Bot
 
-Paper-only web service for the R26A quality-core signal router, with R25A market-pulse, R27A liquidity-intel, R28A macro-event watches and the locked R30A forward Trade A+ gate.
+Paper-only web service for the R26A quality-core signal router, with R25A market-pulse, R27A liquidity-intel, R28A macro-event watches, R40B crowding confirmation and the locked R30A forward Trade A+ gate.
 
 ## Status
 
@@ -11,6 +11,7 @@ This repository is research-to-paper only.
 - Telegram alerts: Vietnamese paper notifications only
 - Render target: Python web service with an internal paper-scan loop
 - Trade A+ gate: locked because the exact R31A production-parity audit fails the historical quality gate; forward collection remains observational
+- R40B crowding confirmation: shadow-only vote from 52 pre-frozen funding/premium filters; it annotates and records R26A signals without suppressing them
 
 Current paper strategy:
 

@@ -180,6 +180,13 @@ class StrategyTests(unittest.TestCase):
             strategy_id=STRATEGY_ID,
             scan_interval_seconds=300,
             heartbeat_interval_seconds=3600,
+            scan_summary={
+                "crowding_forward": {
+                    "confirmed_signals": 3,
+                    "crowding_risk_signals": 1,
+                    "confirmed_closed_trades": 2,
+                }
+            },
             historical_metrics=PORTFOLIO_METRICS,
         )
         self.assertIn("📡 <b>BOT R26A LÕI CHẤT LƯỢNG ĐÃ KHỞI ĐỘNG</b>", startup)
@@ -188,6 +195,7 @@ class StrategyTests(unittest.TestCase):
         self.assertIn("SOL, BNB 4h", startup)
         self.assertIn("🧪 Trade A+: <b>KHÓA</b>", startup)
         self.assertIn("Backtest R31A: <b>CHƯA ĐẠT (8/15)</b>", startup)
+        self.assertIn("R40B shadow: xác nhận <b>3</b> | rủi ro <b>1</b> | đã đóng <b>2</b>", startup)
         self.assertIn("(đang giám sát)", startup)
         self.assertIn("🔒 <b>KHÔNG TỰ ĐẶT LỆNH / TIỀN THẬT ĐANG KHÓA</b>", startup)
 
@@ -197,6 +205,13 @@ class StrategyTests(unittest.TestCase):
                 "time_utc": "2026-08-20T04:30:00+00:00",
                 "new_signal_count": 0,
                 "active_position_count": 0,
+                "crowding_forward": {
+                    "confirmed_signals": 3,
+                    "crowding_risk_signals": 1,
+                    "confirmed_closed_trades": 2,
+                    "confirmed_win_rate": 0.5,
+                    "confirmed_profit_factor_12bps": 2.0,
+                },
                 "groups": [
                     {
                         "symbol": "BTCUSDT",
@@ -232,6 +247,7 @@ class StrategyTests(unittest.TestCase):
         self.assertIn("💓 <b>BOT R26A LÕI CHẤT LƯỢNG — BÁO SỐNG</b>", heartbeat)
         self.assertIn("Luật: <b>6</b>", heartbeat)
         self.assertIn("🧪 <b>TRADE A+: KHÓA / WATCH ONLY</b>", heartbeat)
+        self.assertIn("R40B shadow: xác nhận <b>3</b> | rủi ro <b>1</b> | đóng <b>2</b> | Win <code>50.0%</code> | PF12 <code>2.00</code>", heartbeat)
         self.assertNotIn("• Độ rộng thị trường:", heartbeat)
         self.assertNotIn("n/a/n/a", heartbeat)
         self.assertIn("🔒 <b>PAPER ONLY / KHÔNG TỰ ĐẶT LỆNH</b>", heartbeat)

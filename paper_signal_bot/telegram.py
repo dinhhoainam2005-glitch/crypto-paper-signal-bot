@@ -384,6 +384,7 @@ def format_startup_message(
     liquidity_groups = summary.get("liquidity_groups", [])
     readiness = summary.get("trade_readiness") or {}
     metrics = readiness.get("metrics") or {}
+    crowding_forward = summary.get("crowding_forward") or {}
     history = historical_metrics or summary.get("report_metrics") or {}
     history_passed = int(history.get("historical_checks_passed") or 0)
     history_total = int(history.get("historical_checks_total") or 0)
@@ -426,10 +427,16 @@ def format_startup_message(
             liq=esc(liquidity_ready),
             liq_total=esc(liquidity_total or 4),
         ),
+        "🧭 Xác nhận crowding R40B: <b>SHADOW / KHÔNG CHẶN TÍN HIỆU</b>",
         history_line,
         "📋 Forward: <code>{days} ngày</code> | <code>{trades} lệnh đóng</code> (đang giám sát)".format(
             days=fmt_float(metrics.get("forward_days"), 1),
             trades=esc(metrics.get("closed_trades", 0)),
+        ),
+        "🧭 R40B shadow: xác nhận <b>{confirmed}</b> | rủi ro <b>{risk}</b> | đã đóng <b>{closed}</b>".format(
+            confirmed=esc(crowding_forward.get("confirmed_signals", 0)),
+            risk=esc(crowding_forward.get("crowding_risk_signals", 0)),
+            closed=esc(crowding_forward.get("confirmed_closed_trades", 0)),
         ),
     ]
     events = sorted(
@@ -487,6 +494,7 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
     rules_scanned = sum(int(float(group.get("candidate_count") or 0)) for group in groups)
     readiness = scan_summary.get("trade_readiness") or {}
     readiness_metrics = readiness.get("metrics") or {}
+    crowding_forward = scan_summary.get("crowding_forward") or {}
     history = scan_summary.get("report_metrics") or {}
     history_passed = int(history.get("historical_checks_passed") or 0)
     history_total = int(history.get("historical_checks_total") or 0)
@@ -542,6 +550,13 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
             trades=esc(readiness_metrics.get("closed_trades", 0)),
             win=esc(percent(readiness_metrics.get("win_rate"))),
             pf12=fmt_float(readiness_metrics.get("profit_factor_12bps"), 2),
+        ),
+        "🧭 R40B shadow: xác nhận <b>{confirmed}</b> | rủi ro <b>{risk}</b> | đóng <b>{closed}</b> | Win <code>{win}</code> | PF12 <code>{pf12}</code>".format(
+            confirmed=esc(crowding_forward.get("confirmed_signals", 0)),
+            risk=esc(crowding_forward.get("crowding_risk_signals", 0)),
+            closed=esc(crowding_forward.get("confirmed_closed_trades", 0)),
+            win=esc(percent(crowding_forward.get("confirmed_win_rate"))),
+            pf12=fmt_float(crowding_forward.get("confirmed_profit_factor_12bps"), 2),
         ),
     ]
     if pulse_groups:
@@ -614,6 +629,7 @@ def format_signal_message(signal: dict[str, Any]) -> str:
     tier_title = "ỨNG VIÊN TRADE A+ (VẪN PAPER)" if signal_tier == "TRADE_A_PLUS" else "WATCH PAPER / CHƯA ĐỦ CHUẨN TIỀN THẬT"
     tier_icon = "🏅" if signal_tier == "TRADE_A_PLUS" else "👁️"
     side_icon = "📈" if side == "LONG" else "📉" if side == "SHORT" else "📡"
+    crowding = signal.get("crowding_confirmation") or {}
     quality_lines = [
         "• Ứng viên: <code>{candidate_id}</code>".format(
             candidate_id=esc(candidate.get("candidate_id", "")),
@@ -666,6 +682,21 @@ def format_signal_message(signal: dict[str, Any]) -> str:
             "• Biến động thực 24 nến: <code>{rv}</code> >= <code>{need}</code>".format(
                 rv=fmt_float(features.get("realized_vol_24"), 4),
                 need=fmt_float(features.get("quality_realized_vol_24_min"), 4),
+            )
+        )
+    if crowding:
+        crowding_status = str(crowding.get("status") or "UNAVAILABLE").upper()
+        crowding_label = {
+            "CONFIRMED": "XÁC NHẬN",
+            "CROWDING_RISK": "RỦI RO ĐÁM ĐÔNG",
+            "UNAVAILABLE": "CHƯA ĐỦ DỮ LIỆU",
+        }.get(crowding_status, crowding_status)
+        quality_lines.append(
+            "• R40B crowding: <b>{status}</b> | Đồng thuận <code>{consensus}</code> (<code>{votes}/{total}</code>)".format(
+                status=esc(crowding_label),
+                consensus=esc(percent(crowding.get("consensus"))),
+                votes=esc(crowding.get("votes", "n/a")),
+                total=esc(crowding.get("candidate_total", 52)),
             )
         )
     quality_lines.append(

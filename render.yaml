@@ -32,6 +32,8 @@ services:
         value: "12"
       - key: LIQUIDITY_INTEL_ENABLED
         value: "true"
+      - key: CROWDING_CONFIRMATION_ENABLED
+        value: "true"
       - key: MAX_LIQUIDITY_EVENT_LAG_SECONDS
         value: "600"
       - key: MAX_LIQUIDITY_EVENT_LAG_SECONDS_4H

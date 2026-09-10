@@ -13,6 +13,12 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from .binance_client import BinanceFuturesClient
+from .crowding_confirmation import (
+    ENGINE_ID as CROWDING_ID,
+    crowding_forward_summary,
+    evaluate_crowding_confirmation,
+    required_history_start_ms,
+)
 from .hyperliquid_client import HyperliquidClient
 from .liquidity_intel import LIQUIDITY_ID, LIQUIDITY_INTERVALS, LIQUIDITY_MARKETS, LIQUIDITY_SYMBOLS, evaluate_liquidity_intel, max_liquidity_event_lag_seconds
 from .macro_events import MACRO_ID, evaluate_macro_calendar, fetch_macro_calendar
@@ -233,6 +239,7 @@ def compact_scan(scan_result: dict[str, Any]) -> dict[str, Any]:
         "scan_duration_seconds": scan.get("scan_duration_seconds"),
         "scan_gap_seconds": scan.get("scan_gap_seconds"),
         "trade_readiness": scan.get("trade_readiness", {}),
+        "crowding_forward": scan.get("crowding_forward", {}),
         "report_metrics": PORTFOLIO_METRICS,
         "groups": groups,
     }
@@ -265,6 +272,7 @@ class SignalService:
         self.session_floor_ms: int | None = None
         self.liquidity_enabled = env_enabled("LIQUIDITY_INTEL_ENABLED", "true")
         self.macro_enabled = env_enabled("MACRO_EVENT_WATCH_ENABLED", "true")
+        self.crowding_enabled = env_enabled("CROWDING_CONFIRMATION_ENABLED", "true")
         self._macro_calendar_cache: dict[str, Any] | None = None
         self._macro_calendar_cache_until_ms = 0
 
@@ -292,6 +300,29 @@ class SignalService:
         self._macro_calendar_cache = calendar
         self._macro_calendar_cache_until_ms = at_ms + ttl_seconds * 1000
         return calendar
+
+    def crowding_confirmation(self, signal: dict[str, Any]) -> dict[str, Any]:
+        entry_time_ms = int(signal["entry_time_ms"])
+        start_time_ms = required_history_start_ms(entry_time_ms)
+        premium = self.client.premium_index_klines_range(
+            str(signal["symbol"]),
+            "1h",
+            start_time_ms,
+            entry_time_ms - 1,
+        )
+        funding = self.client.funding_rate_history(
+            str(signal["symbol"]),
+            start_time_ms,
+            entry_time_ms,
+        )
+        return evaluate_crowding_confirmation(
+            symbol=str(signal["symbol"]),
+            timeframe=str(signal["timeframe"]),
+            side=str(signal["side"]),
+            entry_time_ms=entry_time_ms,
+            funding_rows=funding,
+            premium_rows=premium,
+        )
 
     @staticmethod
     def active_assets_from_state(state: dict[str, Any], at_ms: int | None = None) -> set[str]:
@@ -501,6 +532,21 @@ class SignalService:
                             signal["suppressed_reason"] = "ACTIVE_POSITION"
                             suppressed_signals.append(signal)
                             continue
+                        if self.crowding_enabled:
+                            try:
+                                signal["crowding_confirmation"] = self.crowding_confirmation(signal)
+                            except Exception as exc:
+                                signal["crowding_confirmation"] = {
+                                    "engine_id": CROWDING_ID,
+                                    "mode": "SHADOW_CONFIRMATION_ONLY",
+                                    "status": "UNAVAILABLE",
+                                    "data_state": "DEGRADED",
+                                    "error": type(exc).__name__,
+                                    "real_money_authorized": False,
+                                }
+                                self.store.record_error(
+                                    f"crowding {signal['symbol']} {signal['timeframe']}: {type(exc).__name__}"
+                                )
                         signal["status"] = "PAPER_OPEN_PLANNED"
                         signal["delivery_status"] = "PENDING"
                         signals.append(signal)
@@ -540,6 +586,9 @@ class SignalService:
             liquidity_events = fresh_liquidity_events[:effective_liquidity_events_per_scan()]
             macro_events = fresh_macro_events[:effective_macro_events_per_scan()]
             events = [*pulse_events, *liquidity_events, *macro_events]
+            crowding_forward = crowding_forward_summary(
+                [*readiness_source.get("signals", []), *signals]
+            )
             previous_ms = state_before.get("last_scan", {}).get("scan_started_ms")
             scan = {
                 "strategy_id": STRATEGY_ID,
@@ -567,6 +616,7 @@ class SignalService:
                 "closed_signals": closed_signals,
                 "closed_signal_count": len(closed_signals),
                 "trade_readiness": trade_readiness,
+                "crowding_forward": crowding_forward,
                 "suppressed_signals": suppressed_signals,
                 "suppressed_signal_count": len(suppressed_signals),
             }
@@ -725,6 +775,16 @@ class Handler(BaseHTTPRequestHandler):
                         },
                         "max_events_per_scan": effective_liquidity_events_per_scan(),
                         "performance_metrics": None,
+                    },
+                    "crowding_confirmation": {
+                        "engine_id": CROWDING_ID,
+                        "enabled": SERVICE.crowding_enabled,
+                        "mode": "shadow_confirmation_only",
+                        "blocks_base_signals": False,
+                        "markets": list(R26A_SCAN_MARKETS),
+                        "inputs": ["Binance funding-rate history", "Binance 1h premium-index history"],
+                        "candidate_votes": 52,
+                        "consensus_min": 0.50,
                     },
                     "macro_event_watch": {
                         "engine_id": MACRO_ID,

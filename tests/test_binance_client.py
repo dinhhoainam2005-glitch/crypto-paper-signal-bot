@@ -32,6 +32,49 @@ def http_error(code: int = 418) -> urllib.error.HTTPError:
 
 
 class BinanceClientTests(unittest.TestCase):
+    def test_premium_history_paginates_without_duplicate_open_times(self) -> None:
+        client = BinanceFuturesClient(
+            base_url="https://fapi.example.test",
+            timeout_seconds=1,
+            retries=0,
+        )
+        first = [[index * 3_600_000] for index in range(1500)]
+        second = [[1499 * 3_600_000], [1500 * 3_600_000]]
+
+        with patch.object(client, "_get", side_effect=[first, second]) as get:
+            result = client.premium_index_klines_range(
+                "BTCUSDT",
+                "1h",
+                0,
+                1500 * 3_600_000,
+            )
+
+        self.assertEqual(len(result), 1501)
+        self.assertEqual(get.call_count, 2)
+        self.assertEqual(get.call_args_list[1].args[1]["startTime"], 1500 * 3_600_000)
+
+    def test_funding_history_uses_requested_closed_window(self) -> None:
+        client = BinanceFuturesClient(
+            base_url="https://fapi.example.test",
+            timeout_seconds=1,
+            retries=0,
+        )
+        with patch.object(client, "_get", return_value=[]) as get:
+            client.funding_rate_history("ETHUSDT", 1000, 2000)
+
+        self.assertEqual(
+            get.call_args.args,
+            (
+                "/fapi/v1/fundingRate",
+                {
+                    "symbol": "ETHUSDT",
+                    "startTime": 1000,
+                    "endTime": 2000,
+                    "limit": 1000,
+                },
+            ),
+        )
+
     def test_klines_falls_back_to_spot_market_data_after_futures_gateway_418(self) -> None:
         client = BinanceFuturesClient(
             base_url="https://fapi.example.test",
