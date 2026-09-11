@@ -1,0 +1,369 @@
+{
+  "experiment": "CORE4_V7_INDEPENDENT_SECOND_AUDIT",
+  "protocol_frozen_before_execution": true,
+  "research_trials_adjusted": 7,
+  "moving_block_mean_r_lower_5pct": 0.15987713842537868,
+  "hac_one_sided_p": 0.0009170201709410852,
+  "hac_bonferroni_adjusted_p": 0.006419141196587597,
+  "largest_positive_symbol_pnl_share": 0.38964763416555875,
+  "checks_passed": 14,
+  "checks_total": 14,
+  "checks": {
+    "frozen_replay_exact": true,
+    "frozen_primary_gates": true,
+    "cost_30bps": true,
+    "cost_40bps": true,
+    "entry_delay_1d": true,
+    "adverse_funding": true,
+    "parameter_neighborhood": true,
+    "leave_one_symbol_out": true,
+    "moving_block_lower_positive": true,
+    "hac_bonferroni_p_lt_0p05": true,
+    "signal_contract_complete": true,
+    "symbol_concentration_le_60pct": true,
+    "all_variants_reconciled": true,
+    "all_variants_gross_cap": true
+  },
+  "decision": "EXECUTION_TIMING_AUDIT_REQUIRED",
+  "production_changed": false,
+  "variants": {
+    "frozen_20bps": {
+      "overall": {
+        "days": 2069,
+        "total_return": 0.1984021254061603,
+        "cagr": 0.03246010140916078,
+        "sharpe": 1.034070166881175,
+        "max_drawdown": -0.04036000975411369,
+        "trades": 154,
+        "win_rate": 0.5974025974025974,
+        "profit_factor": 1.885313759444008,
+        "mean_r": 0.3413330181102881,
+        "median_holding_days": 7.5
+      },
+      "recent_2025_plus": {
+        "days": 608,
+        "total_return": 0.07192405060243412,
+        "cagr": 0.04264907918798877,
+        "sharpe": 1.4525074855316227,
+        "max_drawdown": -0.017919472663768476,
+        "trades": 37,
+        "win_rate": 0.7027027027027027,
+        "profit_factor": 2.9484482567742947,
+        "mean_r": 0.5429950865752391,
+        "median_holding_days": 7.0
+      }
+    },
+    "cost_30bps": {
+      "overall": {
+        "days": 2069,
+        "total_return": 0.18433375326889312,
+        "cagr": 0.030310459662532985,
+        "sharpe": 0.968305047042043,
+        "max_drawdown": -0.04253169155122882,
+        "trades": 154,
+        "win_rate": 0.5844155844155844,
+        "profit_factor": 1.8105246498621714,
+        "mean_r": 0.3193364539219059,
+        "median_holding_days": 7.5
+      },
+      "recent_2025_plus": {
+        "days": 608,
+        "total_return": 0.0681350331816497,
+        "cagr": 0.040431335575438876,
+        "sharpe": 1.384532497773661,
+        "max_drawdown": -0.0185509586076531,
+        "trades": 37,
+        "win_rate": 0.7027027027027027,
+        "profit_factor": 2.8021314809496802,
+        "mean_r": 0.5154456923154048,
+        "median_holding_days": 7.0
+      }
+    },
+    "cost_40bps": {
+      "overall": {
+        "days": 2069,
+        "total_return": 0.17042754750793532,
+        "cagr": 0.028164830610149627,
+        "sharpe": 0.9023040024992245,
+        "max_drawdown": -0.04469899039197178,
+        "trades": 154,
+        "win_rate": 0.5584415584415584,
+        "profit_factor": 1.7374408736556712,
+        "mean_r": 0.2973398897335236,
+        "median_holding_days": 7.5
+      },
+      "recent_2025_plus": {
+        "days": 608,
+        "total_return": 0.06435839638205043,
+        "cagr": 0.03821771515027694,
+        "sharpe": 1.315730869646578,
+        "max_drawdown": -0.01918218044908271,
+        "trades": 37,
+        "win_rate": 0.7027027027027027,
+        "profit_factor": 2.6631911253832627,
+        "mean_r": 0.48789629805557067,
+        "median_holding_days": 7.0
+      }
+    },
+    "entry_delay_1d": {
+      "overall": {
+        "days": 2069,
+        "total_return": 0.14359728437717934,
+        "cagr": 0.023965085290420296,
+        "sharpe": 0.735146952713565,
+        "max_drawdown": -0.03590172641654166,
+        "trades": 160,
+        "win_rate": 0.5875,
+        "profit_factor": 1.6372380580948314,
+        "mean_r": 0.24413683267940053,
+        "median_holding_days": 9.0
+      },
+      "recent_2025_plus": {
+        "days": 608,
+        "total_return": 0.034122429601038506,
+        "cagr": 0.02038103923309542,
+        "sharpe": 0.6410264713646179,
+        "max_drawdown": -0.025468770670593055,
+        "trades": 42,
+        "win_rate": 0.6904761904761905,
+        "profit_factor": 1.8706785537871822,
+        "mean_r": 0.23113079093242486,
+        "median_holding_days": 7.0
+      }
+    },
+    "adverse_funding": {
+      "overall": {
+        "days": 2069,
+        "total_return": 0.17590722193195707,
+        "cagr": 0.029012799008103274,
+        "sharpe": 0.9286506585044733,
+        "max_drawdown": -0.04290636210055809,
+        "trades": 154,
+        "win_rate": 0.5714285714285714,
+        "profit_factor": 1.7616815038123277,
+        "mean_r": 0.30597686123428613,
+        "median_holding_days": 7.5
+      },
+      "recent_2025_plus": {
+        "days": 608,
+        "total_return": 0.07033625131191434,
+        "cagr": 0.04172010802651682,
+        "sharpe": 1.423203075332011,
+        "max_drawdown": -0.01809260913786659,
+        "trades": 37,
+        "win_rate": 0.7027027027027027,
+        "profit_factor": 2.899728306646002,
+        "mean_r": 0.5314517513270567,
+        "median_holding_days": 7.0
+      }
+    },
+    "sma_180": {
+      "overall": {
+        "days": 2069,
+        "total_return": 0.18879812997631107,
+        "cagr": 0.030994881904383043,
+        "sharpe": 0.9870695653309535,
+        "max_drawdown": -0.040360009754113246,
+        "trades": 155,
+        "win_rate": 0.5870967741935483,
+        "profit_factor": 1.815160099748819,
+        "mean_r": 0.3243547752717225,
+        "median_holding_days": 8.0
+      },
+      "recent_2025_plus": {
+        "days": 608,
+        "total_return": 0.06387359043610119,
+        "cagr": 0.03793332660796289,
+        "sharpe": 1.284325729281695,
+        "max_drawdown": -0.017919472663768476,
+        "trades": 39,
+        "win_rate": 0.6666666666666666,
+        "profit_factor": 2.432092447719481,
+        "mean_r": 0.46014368382679677,
+        "median_holding_days": 7.0
+      }
+    },
+    "sma_220": {
+      "overall": {
+        "days": 2069,
+        "total_return": 0.17317234848154617,
+        "cagr": 0.028589990646458174,
+        "sharpe": 0.928926178300483,
+        "max_drawdown": -0.04036000975411591,
+        "trades": 153,
+        "win_rate": 0.5882352941176471,
+        "profit_factor": 1.765280565662758,
+        "mean_r": 0.30322195642973754,
+        "median_holding_days": 7.0
+      },
+      "recent_2025_plus": {
+        "days": 608,
+        "total_return": 0.04611644031880968,
+        "cagr": 0.027481052792938332,
+        "sharpe": 1.0022106647376001,
+        "max_drawdown": -0.017919472663768476,
+        "trades": 37,
+        "win_rate": 0.6756756756756757,
+        "profit_factor": 2.1326638908829176,
+        "mean_r": 0.3519217713089921,
+        "median_holding_days": 6.0
+      }
+    },
+    "entry_channel_50": {
+      "overall": {
+        "days": 2069,
+        "total_return": 0.21238124131878888,
+        "cagr": 0.034575618543681186,
+        "sharpe": 1.0980463427841534,
+        "max_drawdown": -0.04256681708801757,
+        "trades": 157,
+        "win_rate": 0.6050955414012739,
+        "profit_factor": 1.9420532855582562,
+        "mean_r": 0.3565612170079847,
+        "median_holding_days": 7.0
+      },
+      "recent_2025_plus": {
+        "days": 608,
+        "total_return": 0.07731320102498818,
+        "cagr": 0.04579801769271352,
+        "sharpe": 1.5337553579461425,
+        "max_drawdown": -0.017919472663768476,
+        "trades": 37,
+        "win_rate": 0.7297297297297297,
+        "profit_factor": 3.333856596411047,
+        "mean_r": 0.5815399029548729,
+        "median_holding_days": 7.0
+      }
+    },
+    "entry_channel_60": {
+      "overall": {
+        "days": 2069,
+        "total_return": 0.19646184056212834,
+        "cagr": 0.03216486613910208,
+        "sharpe": 1.0313055488107,
+        "max_drawdown": -0.03486732932075276,
+        "trades": 151,
+        "win_rate": 0.609271523178808,
+        "profit_factor": 1.90335727706739,
+        "mean_r": 0.3448819377084949,
+        "median_holding_days": 7.0
+      },
+      "recent_2025_plus": {
+        "days": 608,
+        "total_return": 0.0681786649149616,
+        "cagr": 0.04045689142761821,
+        "sharpe": 1.3840714788868387,
+        "max_drawdown": -0.017919472663767255,
+        "trades": 36,
+        "win_rate": 0.7222222222222222,
+        "profit_factor": 2.8723150867200724,
+        "mean_r": 0.5301897589927409,
+        "median_holding_days": 7.0
+      }
+    },
+    "without_BTCUSDT": {
+      "overall": {
+        "days": 2069,
+        "total_return": 0.19290459085028355,
+        "cagr": 0.031622566644893935,
+        "sharpe": 1.273158007636246,
+        "max_drawdown": -0.025464199092870343,
+        "trades": 116,
+        "win_rate": 0.6293103448275862,
+        "profit_factor": 2.2545997992578948,
+        "mean_r": 0.4391135398092436,
+        "median_holding_days": 7.0
+      },
+      "recent_2025_plus": {
+        "days": 608,
+        "total_return": 0.05184864176096493,
+        "cagr": 0.030862837738118598,
+        "sharpe": 1.3555070100039242,
+        "max_drawdown": -0.014132009316634164,
+        "trades": 30,
+        "win_rate": 0.6666666666666666,
+        "profit_factor": 2.5848104771695475,
+        "mean_r": 0.48633385908515386,
+        "median_holding_days": 7.0
+      }
+    },
+    "without_ETHUSDT": {
+      "overall": {
+        "days": 2069,
+        "total_return": 0.11667276177036201,
+        "cagr": 0.019668208661216324,
+        "sharpe": 0.8017511722128585,
+        "max_drawdown": -0.03600002510947797,
+        "trades": 119,
+        "win_rate": 0.5798319327731093,
+        "profit_factor": 1.6469869945630076,
+        "mean_r": 0.2698255292768445,
+        "median_holding_days": 7.0
+      },
+      "recent_2025_plus": {
+        "days": 608,
+        "total_return": 0.04510111635217684,
+        "cagr": 0.026881280139574804,
+        "sharpe": 1.2189145900401999,
+        "max_drawdown": -0.020251402598197688,
+        "trades": 27,
+        "win_rate": 0.6666666666666666,
+        "profit_factor": 2.5583755247550175,
+        "mean_r": 0.47269863720016997,
+        "median_holding_days": 7.0
+      }
+    },
+    "without_SOLUSDT": {
+      "overall": {
+        "days": 2069,
+        "total_return": 0.1251504978336455,
+        "cagr": 0.021030285790288428,
+        "sharpe": 0.8216513794348638,
+        "max_drawdown": -0.03549390817591158,
+        "trades": 114,
+        "win_rate": 0.5701754385964912,
+        "profit_factor": 1.7299833047078779,
+        "mean_r": 0.2999124125693102,
+        "median_holding_days": 7.0
+      },
+      "recent_2025_plus": {
+        "days": 608,
+        "total_return": 0.06037014007798103,
+        "cagr": 0.03587665473726642,
+        "sharpe": 1.5426493173105102,
+        "max_drawdown": -0.013275194317866945,
+        "trades": 27,
+        "win_rate": 0.7407407407407407,
+        "profit_factor": 3.2515591326082904,
+        "mean_r": 0.6258372987288481,
+        "median_holding_days": 7.0
+      }
+    },
+    "without_BNBUSDT": {
+      "overall": {
+        "days": 2069,
+        "total_return": 0.14978172502662557,
+        "cagr": 0.024940276643500292,
+        "sharpe": 1.0016611696398052,
+        "max_drawdown": -0.02461148643737887,
+        "trades": 113,
+        "win_rate": 0.6106194690265486,
+        "profit_factor": 1.995982123342477,
+        "mean_r": 0.3580480595773007,
+        "median_holding_days": 9.0
+      },
+      "recent_2025_plus": {
+        "days": 608,
+        "total_return": 0.05714828886355594,
+        "cagr": 0.03398290080334965,
+        "sharpe": 1.4423698674295091,
+        "max_drawdown": -0.012892875858272146,
+        "trades": 27,
+        "win_rate": 0.7407407407407407,
+        "profit_factor": 3.658300700088071,
+        "mean_r": 0.593406243230127,
+        "median_holding_days": 7.0
+      }
+    }
+  }
+}

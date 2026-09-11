@@ -1,0 +1,31 @@
+{
+  "experiment": "CORE4_CLEANROOM_RISK_DEFINED_V2",
+  "parameter_search_count": 0,
+  "checks_passed": 9,
+  "checks_total": 12,
+  "checks": {
+    "full_trades_ge_80": true,
+    "evaluation_trades_ge_20": true,
+    "full_pf_ge_1p30": true,
+    "evaluation_pf_ge_1p20": false,
+    "full_sharpe_ge_1": false,
+    "evaluation_sharpe_ge_1": false,
+    "full_drawdown_le_20pct": true,
+    "evaluation_drawdown_le_15pct": true,
+    "bear_2022_nonnegative": true,
+    "positive_active_years_ge_70pct": true,
+    "average_realized_r_positive": true,
+    "no_capital_violation": true
+  },
+  "diagnostics": {
+    "minimum_cash": 0.8066669196711372,
+    "maximum_initial_gross": 0.35026659580864417,
+    "final_equity": 1.2620577732367555,
+    "reconciled_equity": 1.2620577732367546,
+    "equity_reconciliation_error": 8.881784197001252e-16,
+    "maximum_realized_holding_days": 28.0,
+    "incomplete_trade_plan_rows": 0
+  },
+  "decision": "REJECT_V2",
+  "production_changed": false
+}

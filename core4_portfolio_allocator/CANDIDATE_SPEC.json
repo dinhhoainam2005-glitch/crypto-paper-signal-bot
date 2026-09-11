@@ -1,0 +1,59 @@
+{
+  "strategy_id": "CORE4_V7_BETA_REGIME_DONCHIAN",
+  "status": "PAPER_FORWARD_CANDIDATE",
+  "frozen": true,
+  "universe": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "SOLUSDT",
+    "BNBUSDT"
+  ],
+  "instrument": "BINANCE_USDM_PERPETUAL",
+  "timeframe": "1d",
+  "sides": [
+    "LONG",
+    "SHORT"
+  ],
+  "entry": {
+    "trigger": "55-day Donchian close breakout",
+    "regime": "LONG above BTC SMA200; SHORT below BTC SMA200",
+    "execution": "next 00:00 UTC open",
+    "valid_for_hours": 24
+  },
+  "risk": {
+    "stop_loss": "2 ATR20",
+    "take_profit_r": [
+      1.0,
+      2.0,
+      4.0
+    ],
+    "take_profit_exit_fractions": [
+      0.2,
+      0.3,
+      0.5
+    ],
+    "stop_after_tp1": "break-even",
+    "stop_after_tp2": "TP1",
+    "risk_per_trade_fraction": 0.0035,
+    "max_symbol_notional_fraction": 0.2,
+    "max_initial_gross_fraction": 0.6
+  },
+  "exit": {
+    "signal": "opposite 20-day Donchian channel",
+    "maximum_holding_hours": 2160,
+    "review_interval_hours": 24
+  },
+  "research_evidence": {
+    "primary_gates": "12/12",
+    "independent_second_audit": "14/14",
+    "execution_timing_audit": "19/19",
+    "report": "reports/beta_regime_v7_execution_audit/REPORT.md"
+  },
+  "controls": {
+    "paper_only": true,
+    "telegram_enabled": false,
+    "render_changed": false,
+    "live_trading_enabled": false,
+    "real_money_authorized": false
+  }
+}

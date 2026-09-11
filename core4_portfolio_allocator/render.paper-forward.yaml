@@ -1,0 +1,37 @@
+services:
+  - type: web
+    name: core4-v7-paper-forward
+    runtime: python
+    plan: starter
+    buildCommand: python -m compileall core4_portfolio_allocator/paper_forward
+    startCommand: python -m core4_portfolio_allocator.paper_forward.web
+    healthCheckPath: /health
+    envVars:
+      - key: CORE4_STATE_PATH
+        value: /var/data/core4_v7_forward_state.json
+      - key: CORE4_SCAN_INTERVAL_SECONDS
+        value: "60"
+      - key: CORE4_HEARTBEAT_INTERVAL_SECONDS
+        value: "3600"
+      - key: CORE4_MAX_ENTRY_LAG_SECONDS
+        value: "600"
+      - key: CORE4_MAX_CHASE_BPS
+        value: "40"
+      - key: CORE4_MAX_REPLAY_MINUTES
+        value: "1500"
+      - key: CORE4_TELEGRAM_ENABLED
+        value: "false"
+      - key: CORE4_TELEGRAM_STARTUP_ENABLED
+        value: "true"
+      - key: CORE4_TELEGRAM_HEARTBEAT_ENABLED
+        value: "true"
+      - key: CORE4_TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: CORE4_TELEGRAM_CHAT_ID
+        sync: false
+      - key: CORE4_SCAN_TOKEN
+        generateValue: true
+    disk:
+      name: core4-v7-forward-state
+      mountPath: /var/data
+      sizeGB: 1

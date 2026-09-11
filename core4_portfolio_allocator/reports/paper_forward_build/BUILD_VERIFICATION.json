@@ -1,0 +1,31 @@
+{
+  "strategy_id": "CORE4_V7_BETA_REGIME_DONCHIAN",
+  "spec_sha256": "7d8e356d97a644ac321547394210b12f5fa6575e9583f0e003db03a896c41b1a",
+  "build_status": "READY_FOR_SEPARATE_PAPER_FORWARD_DEPLOY",
+  "verification": {
+    "core4_tests": "35/35 PASS",
+    "existing_bot_tests": "79/79 PASS",
+    "python_compileall": "PASS",
+    "live_binance_read_only_smoke": "4/4 READY",
+    "http_health": "200 OK",
+    "http_spec": "200 OK",
+    "state_survives_restart": true,
+    "duplicate_signal_guard": true,
+    "gross_cap_enforced": true,
+    "stale_entry_guard": true,
+    "chase_guard": true,
+    "degraded_fail_closed": true,
+    "minute_stop_before_target": true,
+    "signal_has_entry_sl_tp1_tp2_tp3_max_hold": true,
+    "order_endpoint_present": false,
+    "exchange_credentials_required": false
+  },
+  "runtime_controls": {
+    "paper_only": true,
+    "telegram_enabled_by_default": false,
+    "live_trading": false,
+    "real_money": false,
+    "existing_r26a_changed": false,
+    "render_deployed": false
+  }
+}

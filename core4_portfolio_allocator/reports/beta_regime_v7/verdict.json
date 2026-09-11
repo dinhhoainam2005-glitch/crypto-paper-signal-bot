@@ -1,0 +1,49 @@
+{
+  "experiment": "CORE4_CLEANROOM_BETA_REGIME_BREAKOUT_V7",
+  "parameter_search_count": 0,
+  "oos_start": "2021-01-01 00:00:00+00:00",
+  "oos_end": "2026-08-31 00:00:00+00:00",
+  "bootstrap_mean_r_lower_5pct": 0.17191506548880994,
+  "overall": {
+    "days": 2069,
+    "total_return": 0.1984021254061603,
+    "cagr": 0.03246010140916078,
+    "sharpe": 1.034070166881175,
+    "max_drawdown": -0.04036000975411369,
+    "trades": 154,
+    "win_rate": 0.5974025974025974,
+    "profit_factor": 1.885313759444008,
+    "mean_r": 0.3413330181102881,
+    "median_holding_days": 7.5
+  },
+  "recent_2025_plus": {
+    "days": 608,
+    "total_return": 0.07192405060243412,
+    "cagr": 0.04264907918798877,
+    "sharpe": 1.4525074855316227,
+    "max_drawdown": -0.017919472663768476,
+    "trades": 37,
+    "win_rate": 0.7027027027027027,
+    "profit_factor": 2.9484482567742947,
+    "mean_r": 0.5429950865752391,
+    "median_holding_days": 7.0
+  },
+  "checks_passed": 12,
+  "checks_total": 12,
+  "checks": {
+    "oos_trades_ge_100": true,
+    "oos_pf_ge_1p30": true,
+    "oos_sharpe_ge_1": true,
+    "oos_drawdown_le_15pct": true,
+    "positive_completed_years_ge_70pct": true,
+    "bootstrap_lower_mean_r_positive": true,
+    "recent_pf_ge_1p20": true,
+    "recent_sharpe_ge_1": true,
+    "recent_return_positive": true,
+    "funding_included": true,
+    "all_reconciled": true,
+    "gross_cap_respected": true
+  },
+  "decision": "SECOND_AUDIT_REQUIRED",
+  "production_changed": false
+}

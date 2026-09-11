@@ -1,0 +1,5 @@
+dataset,symbol,month,status,bytes,sha256,path
+klines,SOLUSDT,2022-02,CACHED_VERIFIED,264031,fcac0069656c2b211334adf9abf9365fc3c8b1f68723fd5a99973b83c57af377,C:\Users\vntfadmin\OneDrive - THG\Documents\Build Signal Bot\core4_portfolio_allocator\data\binance_usdm\klines\SOLUSDT\SOLUSDT-5m-2022-02.zip
+klines,SOLUSDT,2022-04,CACHED_VERIFIED,293255,e3fdaf76689e26038699da88bee8ff88e3e4b2430d9bb3a75947acb93242d2af,C:\Users\vntfadmin\OneDrive - THG\Documents\Build Signal Bot\core4_portfolio_allocator\data\binance_usdm\klines\SOLUSDT\SOLUSDT-5m-2022-04.zip
+markPriceKlines,SOLUSDT,2022-02,DOWNLOADED_VERIFIED,17787,1531c45b25f052eb2efc81ed60aa55b6424f3598aeb516055bae44930aed7aaa,C:\Users\vntfadmin\OneDrive - THG\Documents\Build Signal Bot\core4_portfolio_allocator\data\binance_usdm\markPriceKlines\SOLUSDT\SOLUSDT-1h-2022-02.zip
+markPriceKlines,SOLUSDT,2022-04,DOWNLOADED_VERIFIED,19145,679e3f7b13b456620360f7935933ea4782858cda3239f8a5a098200dca6bfb3b,C:\Users\vntfadmin\OneDrive - THG\Documents\Build Signal Bot\core4_portfolio_allocator\data\binance_usdm\markPriceKlines\SOLUSDT\SOLUSDT-1h-2022-04.zip

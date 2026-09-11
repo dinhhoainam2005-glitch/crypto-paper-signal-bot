@@ -1,0 +1,77 @@
+{
+  "experiment": "CORE4_V7_EXECUTION_TIMING_AUDIT",
+  "data_quality": {
+    "BTCUSDT": {
+      "bars": 58440,
+      "coverage": 1.0,
+      "daily_ohlc_exact": true
+    },
+    "ETHUSDT": {
+      "bars": 58440,
+      "coverage": 1.0,
+      "daily_ohlc_exact": true
+    },
+    "SOLUSDT": {
+      "bars": 52265,
+      "coverage": 1.0,
+      "daily_ohlc_exact": true
+    },
+    "BNBUSDT": {
+      "bars": 57472,
+      "coverage": 1.0,
+      "daily_ohlc_exact": true
+    }
+  },
+  "moving_block_mean_r_lower_5pct": 0.1500825902595198,
+  "hac_one_sided_p": 0.001160396701536448,
+  "hac_bonferroni_adjusted_p": 0.008122776910755136,
+  "overall": {
+    "days": 2069,
+    "total_return": 0.1939795436298215,
+    "cagr": 0.031786582472467906,
+    "sharpe": 1.0064208993716734,
+    "max_drawdown": -0.03148676581053067,
+    "trades": 156,
+    "win_rate": 0.6153846153846154,
+    "profit_factor": 1.8829853639540033,
+    "mean_r": 0.32987483677922297,
+    "median_holding_days": 7.666666666666667
+  },
+  "recent_2025_plus": {
+    "days": 608,
+    "total_return": 0.06798887692440991,
+    "cagr": 0.04034572632444955,
+    "sharpe": 1.3753116643763983,
+    "max_drawdown": -0.017893935707519182,
+    "trades": 37,
+    "win_rate": 0.7297297297297297,
+    "profit_factor": 2.8573039708895576,
+    "mean_r": 0.5135746039256985,
+    "median_holding_days": 7.041666666666667
+  },
+  "checks_passed": 19,
+  "checks_total": 19,
+  "checks": {
+    "archives_checksum_verified": true,
+    "gap_repair_checksum_verified": true,
+    "hourly_coverage_ge_99p9pct": true,
+    "hourly_rebuilds_daily_ohlc": true,
+    "oos_trades_ge_100": true,
+    "oos_pf_ge_1p30": true,
+    "oos_sharpe_ge_1": true,
+    "oos_drawdown_le_15pct": true,
+    "positive_completed_years_ge_70pct": true,
+    "recent_pf_ge_1p20": true,
+    "recent_sharpe_ge_1": true,
+    "recent_return_positive": true,
+    "moving_block_lower_positive": true,
+    "hac_bonferroni_p_lt_0p05": true,
+    "signal_contract_complete": true,
+    "all_folds_reconciled": true,
+    "gross_cap_respected": true,
+    "pf_retains_70pct_of_daily": true,
+    "return_retains_70pct_of_daily": true
+  },
+  "decision": "PAPER_FORWARD_CANDIDATE",
+  "production_changed": false
+}

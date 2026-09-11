@@ -1,0 +1,66 @@
+{
+  "experiment": "CORE4_CLEANROOM_WALKFORWARD_V3",
+  "candidate_count": 3,
+  "candidate_names": [
+    "ALL",
+    "TOP1",
+    "TOP2"
+  ],
+  "selection_uses_past_only": true,
+  "oos_start": "2020-01-01 00:00:00+00:00",
+  "oos_end": "2026-08-31 00:00:00+00:00",
+  "bootstrap_samples": 10000,
+  "bootstrap_mean_r_lower_5pct": 0.08911379087495169,
+  "overall": {
+    "days": 2435,
+    "total_return": 0.22870377251292973,
+    "cagr": 0.03136740942569194,
+    "sharpe": 0.8075369359279714,
+    "max_drawdown": -0.07040319040171383,
+    "trades": 189,
+    "win_rate": 0.5608465608465608,
+    "profit_factor": 1.5935636257736405,
+    "mean_r": 0.22363002783575062,
+    "median_holding_days": 8.0
+  },
+  "evaluation_2024_plus": {
+    "days": 974,
+    "total_return": 0.02648084236221737,
+    "cagr": 0.009852689295567041,
+    "sharpe": 0.2981774199732837,
+    "max_drawdown": -0.048640988306107746,
+    "trades": 62,
+    "win_rate": 0.45161290322580644,
+    "profit_factor": 1.2014999885325448,
+    "mean_r": 0.0895262003507592,
+    "median_holding_days": 9.0
+  },
+  "recent_2025_plus": {
+    "days": 608,
+    "total_return": -0.011903207408988314,
+    "cagr": -0.007174690858054333,
+    "sharpe": -0.2638959456526067,
+    "max_drawdown": -0.03370738602832857,
+    "trades": 26,
+    "win_rate": 0.4230769230769231,
+    "profit_factor": 0.8009127845488033,
+    "mean_r": -0.08798249768453358,
+    "median_holding_days": 9.5
+  },
+  "checks_passed": 6,
+  "checks_total": 10,
+  "checks": {
+    "oos_trades_ge_120": true,
+    "oos_pf_ge_1p30": true,
+    "oos_sharpe_ge_1": false,
+    "oos_drawdown_le_15pct": true,
+    "positive_completed_years_ge_70pct": false,
+    "oos_mean_r_positive": true,
+    "bootstrap_mean_r_lower_5pct_positive": true,
+    "evaluation_pf_ge_1p20": true,
+    "evaluation_sharpe_ge_1": false,
+    "recent_return_positive": false
+  },
+  "decision": "REJECT_V3",
+  "production_changed": false
+}

@@ -1,0 +1,49 @@
+{
+  "experiment": "CORE4_CLEANROOM_CAUSAL_SLEEVE_COUNCIL_V6",
+  "selection_uses_past_only": true,
+  "oos_start": "2022-01-01 00:00:00+00:00",
+  "oos_end": "2026-08-31 00:00:00+00:00",
+  "bootstrap_mean_r_lower_5pct": -0.046861442735739355,
+  "overall": {
+    "days": 1704,
+    "total_return": 0.05194194751643111,
+    "cagr": 0.010912217488151743,
+    "sharpe": 0.5779781270038388,
+    "max_drawdown": -0.0207531692170424,
+    "trades": 63,
+    "win_rate": 0.5396825396825397,
+    "profit_factor": 1.4973869961178363,
+    "mean_r": 0.2349678186220651,
+    "median_holding_days": 7.0
+  },
+  "recent_2025_plus": {
+    "days": 608,
+    "total_return": 0.018141436991066406,
+    "cagr": 0.010869652166101362,
+    "sharpe": 0.6197494522364755,
+    "max_drawdown": -0.019003290396003347,
+    "trades": 20,
+    "win_rate": 0.55,
+    "profit_factor": 1.6263945786846659,
+    "mean_r": 0.2626174054125541,
+    "median_holding_days": 5.5
+  },
+  "checks_passed": 8,
+  "checks_total": 12,
+  "checks": {
+    "oos_trades_ge_80": false,
+    "oos_pf_ge_1p30": true,
+    "oos_sharpe_ge_1": false,
+    "oos_drawdown_le_15pct": true,
+    "positive_completed_years_ge_70pct": true,
+    "bootstrap_lower_mean_r_positive": false,
+    "recent_pf_ge_1p20": true,
+    "recent_sharpe_ge_1": false,
+    "recent_return_positive": true,
+    "funding_included": true,
+    "all_reconciled": true,
+    "gross_cap_respected": true
+  },
+  "decision": "REJECT_V6",
+  "production_changed": false
+}
