@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import sys
 import tempfile
 import unittest
@@ -11,7 +12,7 @@ WORKSPACE = ROOT.parent
 if str(WORKSPACE) not in sys.path:
     sys.path.insert(0, str(WORKSPACE))
 
-from core4_portfolio_allocator.paper_forward.clients import Candle
+from core4_portfolio_allocator.paper_forward.clients import BinanceClient, Candle
 from core4_portfolio_allocator.paper_forward.config import (
     EXPECTED_SPEC_SHA256,
     RuntimeConfig,
@@ -86,7 +87,33 @@ class FailingClient(FakeClient):
         raise OSError("offline")
 
 
+class SpotFallbackClient(BinanceClient):
+    def __init__(self) -> None:
+        super().__init__(timeout_seconds=0.1, retries=0)
+        self.base_urls = ("https://blocked-futures.example",)
+        self.calls: list[tuple[str, str]] = []
+
+    def _request_json(self, base_url: str, path: str, params: dict) -> object:
+        self.calls.append((base_url, path))
+        if base_url in self.base_urls:
+            raise json.JSONDecodeError("non-json", "", 0)
+        return [[1_700_000_000_000, "100", "102", "99", "101", "1", 1_700_086_399_999]]
+
+
 class PaperForwardTests(unittest.TestCase):
+    def test_daily_candles_fall_back_to_public_spot_market_data(self) -> None:
+        client = SpotFallbackClient()
+        candles = client.daily_candles("BTCUSDT", limit=1)
+        self.assertEqual(len(candles), 1)
+        self.assertEqual(candles[0].close, 101.0)
+        self.assertEqual(
+            client.calls,
+            [
+                ("https://blocked-futures.example", "/fapi/v1/klines"),
+                ("https://data-api.binance.vision", "/api/v3/klines"),
+            ],
+        )
+
     def test_frozen_spec_hash_and_controls(self) -> None:
         self.assertEqual(spec_sha256(), EXPECTED_SPEC_SHA256)
         spec = load_locked_spec()

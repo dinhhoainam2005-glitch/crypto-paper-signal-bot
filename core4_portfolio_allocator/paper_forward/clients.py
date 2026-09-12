@@ -54,33 +54,55 @@ class BinanceClient:
                 if item.strip()
             )
         )
+        self.spot_market_base_url = os.getenv(
+            "CORE4_BINANCE_SPOT_MARKET_BASE_URL", "https://data-api.binance.vision"
+        ).rstrip("/")
         self.timeout_seconds = timeout_seconds
         self.retries = retries
 
-    def _request(self, path: str, params: dict[str, Any]) -> Any:
+    def _request_json(self, base_url: str, path: str, params: dict[str, Any]) -> Any:
         query = urllib.parse.urlencode(params)
+        request = urllib.request.Request(
+            f"{base_url}{path}?{query}",
+            headers={"User-Agent": "core4-v7-paper-forward/1.0"},
+        )
+        with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
+            return json.loads(response.read().decode("utf-8"))
+
+    def _request(
+        self,
+        path: str,
+        params: dict[str, Any],
+        spot_fallback_path: str | None = None,
+    ) -> Any:
         last_error: Exception | None = None
         for base_url in self.base_urls:
             for attempt in range(self.retries + 1):
-                request = urllib.request.Request(
-                    f"{base_url}{path}?{query}",
-                    headers={"User-Agent": "core4-v7-paper-forward/1.0"},
-                )
                 try:
-                    with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
-                        return json.loads(response.read().decode("utf-8"))
+                    return self._request_json(base_url, path, params)
                 except Exception as exc:
                     last_error = exc
                     retryable = not isinstance(exc, urllib.error.HTTPError) or exc.code in RETRYABLE
                     if not retryable or attempt >= self.retries:
                         break
                     time.sleep(0.25 * (attempt + 1))
+        if spot_fallback_path is not None:
+            try:
+                return self._request_json(
+                    self.spot_market_base_url, spot_fallback_path, params
+                )
+            except Exception as exc:
+                last_error = exc
         assert last_error is not None
         raise last_error
 
     def daily_candles(self, symbol: str, limit: int = 260) -> list[Candle]:
         return parse_candles(
-            self._request("/fapi/v1/klines", {"symbol": symbol, "interval": "1d", "limit": limit})
+            self._request(
+                "/fapi/v1/klines",
+                {"symbol": symbol, "interval": "1d", "limit": limit},
+                spot_fallback_path="/api/v3/klines",
+            )
         )
 
     def minute_candles(
@@ -102,6 +124,7 @@ class BinanceClient:
                     "endTime": end_ms,
                     "limit": 1500,
                 },
+                spot_fallback_path="/api/v3/klines",
             )
             if not page:
                 break
@@ -116,7 +139,11 @@ class BinanceClient:
         return parse_candles([deduplicated[key] for key in sorted(deduplicated)])
 
     def ticker_price(self, symbol: str) -> float:
-        payload = self._request("/fapi/v2/ticker/price", {"symbol": symbol})
+        payload = self._request(
+            "/fapi/v2/ticker/price",
+            {"symbol": symbol},
+            spot_fallback_path="/api/v3/ticker/price",
+        )
         return float(payload["price"])
 
     def funding_rates(self, symbol: str, start_ms: int, end_ms: int) -> list[dict[str, Any]]:
