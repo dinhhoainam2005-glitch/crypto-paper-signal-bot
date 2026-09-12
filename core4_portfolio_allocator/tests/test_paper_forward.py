@@ -89,7 +89,7 @@ class FailingClient(FakeClient):
 
 class SpotFallbackClient(BinanceClient):
     def __init__(self) -> None:
-        super().__init__(timeout_seconds=0.1, retries=0)
+        super().__init__(timeout_seconds=0.1, retries=2)
         self.base_urls = ("https://blocked-futures.example",)
         self.calls: list[tuple[str, str]] = []
 

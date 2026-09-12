@@ -76,7 +76,24 @@ class BinanceClient:
         spot_fallback_path: str | None = None,
     ) -> Any:
         last_error: Exception | None = None
-        for base_url in self.base_urls:
+        futures_urls = self.base_urls
+        if spot_fallback_path is not None:
+            # Market data must not stall a scan while every futures alias is
+            # blocked by the hosting region. Probe the primary once, then use
+            # Binance's public market-data host immediately.
+            try:
+                return self._request_json(self.base_urls[0], path, params)
+            except Exception as exc:
+                last_error = exc
+            try:
+                return self._request_json(
+                    self.spot_market_base_url, spot_fallback_path, params
+                )
+            except Exception as exc:
+                last_error = exc
+            futures_urls = self.base_urls[1:]
+
+        for base_url in futures_urls:
             for attempt in range(self.retries + 1):
                 try:
                     return self._request_json(base_url, path, params)
@@ -86,13 +103,6 @@ class BinanceClient:
                     if not retryable or attempt >= self.retries:
                         break
                     time.sleep(0.25 * (attempt + 1))
-        if spot_fallback_path is not None:
-            try:
-                return self._request_json(
-                    self.spot_market_base_url, spot_fallback_path, params
-                )
-            except Exception as exc:
-                last_error = exc
         assert last_error is not None
         raise last_error
 
