@@ -7,6 +7,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 
@@ -190,3 +191,27 @@ class BinanceClient:
                 {"symbol": symbol, "startTime": start_ms, "endTime": end_ms, "limit": 1000},
             )
         )
+
+
+def market_client_from_env() -> Any:
+    mode = os.getenv("CORE4_BINANCE_DATA_MODE", "rest").strip().lower()
+    if mode != "stream_archive":
+        return BinanceClient()
+    from .futures_stream import BinanceFuturesStreamClient
+
+    state_path = Path(
+        os.getenv("CORE4_STATE_PATH", "data/core4_v7_forward_state.json")
+    )
+    cache_path = Path(
+        os.getenv(
+            "CORE4_FUTURES_STREAM_CACHE_PATH",
+            str(state_path.with_name("core4_v7_futures_stream.json")),
+        )
+    )
+    archive_root = Path(
+        os.getenv(
+            "CORE4_FUTURES_ARCHIVE_CACHE_DIR",
+            str(state_path.parent / "core4_v7_futures_archive"),
+        )
+    )
+    return BinanceFuturesStreamClient(cache_path, archive_root)

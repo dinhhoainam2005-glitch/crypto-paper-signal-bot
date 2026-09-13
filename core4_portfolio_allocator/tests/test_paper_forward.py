@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import io
 import sys
 import tempfile
+import time
 import unittest
 import urllib.error
+import zipfile
 from pathlib import Path
 
 
@@ -29,6 +32,10 @@ from core4_portfolio_allocator.paper_forward.engine import (
     evaluate_candidate,
     new_position,
     process_position_path,
+)
+from core4_portfolio_allocator.paper_forward.futures_stream import (
+    BinanceFuturesStreamClient,
+    parse_archive_zip,
 )
 from core4_portfolio_allocator.paper_forward.state import ForwardStore
 from core4_portfolio_allocator.paper_forward.telegram import format_signal
@@ -115,6 +122,111 @@ class SpotFallbackClient(BinanceClient):
 
 
 class PaperForwardTests(unittest.TestCase):
+    def test_archive_parser_normalizes_microsecond_timestamps(self) -> None:
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            archive.writestr(
+                "BTCUSDT-1d.csv",
+                "open_time,open,high,low,close,volume,close_time\n"
+                "1700000000000000,100,102,99,101,1,1700086399999000\n",
+            )
+        candles = parse_archive_zip(buffer.getvalue())
+        self.assertEqual(candles[0].open_time_ms, 1_700_000_000_000)
+        self.assertEqual(candles[0].close_time_ms, 1_700_086_399_999)
+
+    def test_futures_stream_combines_verified_history_and_live_candle(self) -> None:
+        current_open = int(time.time() * 1000) // DAY_MS * DAY_MS
+        history = [
+            Candle(
+                current_open - (259 - index) * DAY_MS,
+                100.0,
+                102.0,
+                99.0,
+                101.0,
+                current_open - (258 - index) * DAY_MS - 1,
+            )
+            for index in range(259)
+        ]
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            client = BinanceFuturesStreamClient(
+                root / "stream.json",
+                root / "archive",
+                symbols=("BTCUSDT",),
+                start_stream=False,
+            )
+            client.archive.memory["BTCUSDT"] = history
+            client._handle_message(
+                {
+                    "e": "kline",
+                    "s": "BTCUSDT",
+                    "k": {
+                        "s": "BTCUSDT",
+                        "i": "1d",
+                        "t": current_open,
+                        "T": current_open + DAY_MS - 1,
+                        "o": "101",
+                        "h": "103",
+                        "l": "100",
+                        "c": "102",
+                        "x": False,
+                    },
+                }
+            )
+            candles, source = client.daily_candles_with_source("BTCUSDT", 260)
+            self.assertEqual(source, "BINANCE_USDM_FUTURES")
+            self.assertEqual(len(candles), 260)
+            self.assertEqual(candles[-1].open_time_ms, current_open)
+            minute_open = current_open + 60_000
+            client._handle_message(
+                {
+                    "e": "kline",
+                    "s": "BTCUSDT",
+                    "k": {
+                        "s": "BTCUSDT",
+                        "i": "1m",
+                        "t": minute_open,
+                        "T": minute_open + 59_999,
+                        "o": "102",
+                        "h": "103",
+                        "l": "101",
+                        "c": "102.5",
+                        "x": True,
+                    },
+                }
+            )
+            minutes, minute_source = client.minute_candles_with_source(
+                "BTCUSDT", minute_open, minute_open + 59_999, 10
+            )
+            self.assertEqual(minute_source, "BINANCE_USDM_FUTURES")
+            self.assertEqual([candle.open_time_ms for candle in minutes], [minute_open])
+
+            client._handle_message(
+                {
+                    "e": "markPriceUpdate",
+                    "E": minute_open,
+                    "s": "BTCUSDT",
+                    "p": "102.5",
+                    "r": "0.0001",
+                    "T": minute_open + 3_600_000,
+                }
+            )
+            client._handle_message(
+                {
+                    "e": "markPriceUpdate",
+                    "E": minute_open + 3_600_001,
+                    "s": "BTCUSDT",
+                    "p": "103",
+                    "r": "0.0002",
+                    "T": minute_open + 7_200_000,
+                }
+            )
+            funding = client.funding_rates(
+                "BTCUSDT", minute_open, minute_open + 7_200_000
+            )
+            self.assertEqual(len(funding), 1)
+            self.assertEqual(float(funding[0]["fundingRate"]), 0.0001)
+
     def test_daily_candles_fall_back_to_public_spot_market_data(self) -> None:
         client = SpotFallbackClient()
         candles, source = client.daily_candles_with_source("BTCUSDT", limit=1)

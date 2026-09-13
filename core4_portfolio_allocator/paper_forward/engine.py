@@ -6,7 +6,12 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..signal_contract import TradePlan
-from .clients import BinanceClient, Candle, SOURCE_USDM_FUTURES
+from .clients import (
+    BinanceClient,
+    Candle,
+    SOURCE_USDM_FUTURES,
+    market_client_from_env,
+)
 from .config import RuntimeConfig, load_locked_spec, spec_sha256
 from .state import ForwardStore, now_iso
 
@@ -380,7 +385,7 @@ class ForwardEngine:
     ) -> None:
         self.spec = load_locked_spec()
         self.config = config or RuntimeConfig.from_env()
-        self.client = client or BinanceClient()
+        self.client = client or market_client_from_env()
         self.store = store or ForwardStore(self.config.state_path, spec_sha256())
         self.lock = threading.RLock()
         self.symbols = tuple(self.spec["universe"])
@@ -460,6 +465,9 @@ class ForwardEngine:
                             "completed_bars": len(completed),
                             "latest_close_utc": utc_iso(completed[-1].close_time_ms) if completed else None,
                             "data_source": source,
+                            "data_transport": getattr(
+                                self.client, "data_transport", "BINANCE_REST"
+                            ),
                             "source_trusted": source_trusted,
                         }
                     )

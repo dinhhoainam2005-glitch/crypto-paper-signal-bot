@@ -19,6 +19,9 @@
 | `CORE4_MAX_CHASE_BPS` | `40` |
 | `CORE4_MAX_REPLAY_MINUTES` | `1500` |
 | `CORE4_REQUIRE_FUTURES_FOR_SIGNALS` | `true` |
+| `CORE4_BINANCE_DATA_MODE` | `stream_archive` |
+| `CORE4_FUTURES_STREAM_CACHE_PATH` | `/var/data/core4_v7_futures_stream.json` |
+| `CORE4_FUTURES_ARCHIVE_CACHE_DIR` | `/var/data/core4_v7_futures_archive` |
 | `CORE4_TELEGRAM_ENABLED` | `true` after explicit activation |
 | `CORE4_TELEGRAM_STARTUP_ENABLED` | `true` |
 | `CORE4_TELEGRAM_HEARTBEAT_ENABLED` | `true` |
@@ -31,6 +34,9 @@ recovery, and forward statistics across deploys. A service that sleeps through
 00:00-00:10 UTC can miss the frozen entry window, so the deployment template is
 Starter rather than Free.
 
+The primary data path combines checksum-verified Binance Vision USD-M archives
+with the live Binance USD-M Futures WebSocket. Closed one-minute candles and
+funding transitions are retained on the persistent disk for position replay.
 The runtime labels every market-data response. With
 `CORE4_REQUIRE_FUTURES_FOR_SIGNALS=true`, a Binance spot fallback may keep the
 service observable, but it cannot open or replay a paper trade. The heartbeat

@@ -4,7 +4,7 @@ services:
     region: oregon
     runtime: python
     plan: starter
-    buildCommand: python -m compileall core4_portfolio_allocator/paper_forward
+    buildCommand: pip install -r requirements.txt && python -m compileall core4_portfolio_allocator/paper_forward
     startCommand: python -m core4_portfolio_allocator.paper_forward.web
     healthCheckPath: /health
     envVars:
@@ -22,6 +22,12 @@ services:
         value: "1500"
       - key: CORE4_REQUIRE_FUTURES_FOR_SIGNALS
         value: "true"
+      - key: CORE4_BINANCE_DATA_MODE
+        value: stream_archive
+      - key: CORE4_FUTURES_STREAM_CACHE_PATH
+        value: /var/data/core4_v7_futures_stream.json
+      - key: CORE4_FUTURES_ARCHIVE_CACHE_DIR
+        value: /var/data/core4_v7_futures_archive
       - key: CORE4_TELEGRAM_ENABLED
         value: "true"
       - key: CORE4_TELEGRAM_STARTUP_ENABLED
@@ -44,7 +50,7 @@ services:
     region: frankfurt
     runtime: python
     plan: free
-    buildCommand: python -m compileall core4_portfolio_allocator/paper_forward
+    buildCommand: pip install -r requirements.txt && python -m compileall core4_portfolio_allocator/paper_forward
     startCommand: python -m core4_portfolio_allocator.paper_forward.web
     healthCheckPath: /health
     envVars:
@@ -62,6 +68,12 @@ services:
         value: "1500"
       - key: CORE4_REQUIRE_FUTURES_FOR_SIGNALS
         value: "true"
+      - key: CORE4_BINANCE_DATA_MODE
+        value: stream_archive
+      - key: CORE4_FUTURES_STREAM_CACHE_PATH
+        value: /tmp/core4_v7_futures_stream.json
+      - key: CORE4_FUTURES_ARCHIVE_CACHE_DIR
+        value: /tmp/core4_v7_futures_archive
       - key: CORE4_TELEGRAM_ENABLED
         value: "false"
       - key: CORE4_TELEGRAM_STARTUP_ENABLED
