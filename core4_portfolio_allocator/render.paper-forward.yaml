@@ -1,6 +1,7 @@
 services:
   - type: web
     name: core4-v7-paper-forward
+    region: oregon
     runtime: python
     plan: starter
     buildCommand: python -m compileall core4_portfolio_allocator/paper_forward
@@ -37,3 +38,33 @@ services:
       name: core4-v7-forward-state
       mountPath: /var/data
       sizeGB: 1
+
+  - type: web
+    name: core4-v7-futures-probe-eu
+    region: frankfurt
+    runtime: python
+    plan: free
+    buildCommand: python -m compileall core4_portfolio_allocator/paper_forward
+    startCommand: python -m core4_portfolio_allocator.paper_forward.web
+    healthCheckPath: /health
+    envVars:
+      - key: CORE4_STATE_PATH
+        value: /tmp/core4_v7_probe_state.json
+      - key: CORE4_SCAN_INTERVAL_SECONDS
+        value: "60"
+      - key: CORE4_HEARTBEAT_INTERVAL_SECONDS
+        value: "3600"
+      - key: CORE4_MAX_ENTRY_LAG_SECONDS
+        value: "600"
+      - key: CORE4_MAX_CHASE_BPS
+        value: "40"
+      - key: CORE4_MAX_REPLAY_MINUTES
+        value: "1500"
+      - key: CORE4_REQUIRE_FUTURES_FOR_SIGNALS
+        value: "true"
+      - key: CORE4_TELEGRAM_ENABLED
+        value: "false"
+      - key: CORE4_TELEGRAM_STARTUP_ENABLED
+        value: "false"
+      - key: CORE4_TELEGRAM_HEARTBEAT_ENABLED
+        value: "false"
