@@ -4,6 +4,7 @@ import json
 import os
 import threading
 import time
+from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Any
@@ -27,6 +28,13 @@ TELEGRAM = TelegramSender(CONFIG.telegram_enabled)
 NOTIFY_LOCK = threading.RLock()
 LAST_HEARTBEAT_MONOTONIC = 0.0
 PROCESS_START_ID = int(time.time() * 1000)
+PROCESS_START_MONOTONIC = time.monotonic()
+BACKGROUND_SCAN_ENABLED = os.getenv("CORE4_DISABLE_BACKGROUND_SCAN", "false").lower() not in {
+    "1",
+    "true",
+    "yes",
+}
+BACKGROUND_THREAD: threading.Thread | None = None
 
 
 def send_once(state: dict[str, Any], item_id: str, text: str) -> dict[str, Any]:
@@ -91,8 +99,19 @@ def background_loop() -> None:
         started = time.monotonic()
         try:
             scan_and_notify(startup=first)
-        except Exception as exc:
-            ENGINE.store.record_error(f"background scan: {type(exc).__name__}: {exc}")
+        except BaseException as exc:
+            try:
+                ENGINE.store.record_error(f"background scan: {type(exc).__name__}: {exc}")
+            except Exception as store_exc:
+                print(
+                    json.dumps(
+                        {
+                            "event": "core4_error_record_failed",
+                            "error": str(store_exc),
+                        }
+                    ),
+                    flush=True,
+                )
             print(json.dumps({"event": "core4_scan_error", "error": str(exc)}), flush=True)
         first = False
         time.sleep(max(1.0, CONFIG.scan_interval_seconds - (time.monotonic() - started)))
@@ -102,6 +121,39 @@ def json_body(payload: Any) -> bytes:
     return json.dumps(payload, indent=2, sort_keys=True).encode("utf-8")
 
 
+def health_payload(state: dict[str, Any]) -> tuple[dict[str, Any], bool]:
+    age_seconds: float | None = None
+    last_scan = state.get("last_scan_utc")
+    if last_scan:
+        try:
+            scanned_at = datetime.fromisoformat(str(last_scan).replace("Z", "+00:00"))
+            age_seconds = max(
+                0.0,
+                (datetime.now(timezone.utc) - scanned_at.astimezone(timezone.utc)).total_seconds(),
+            )
+        except (TypeError, ValueError):
+            age_seconds = None
+    stale_after = max(300, CONFIG.scan_interval_seconds * 5)
+    thread_alive = bool(BACKGROUND_THREAD and BACKGROUND_THREAD.is_alive())
+    startup_grace = time.monotonic() - PROCESS_START_MONOTONIC <= stale_after
+    scan_fresh = age_seconds is not None and age_seconds <= stale_after
+    healthy = not BACKGROUND_SCAN_ENABLED or (thread_alive and (scan_fresh or startup_grace))
+    payload = {
+        "status": "ok" if healthy else "degraded",
+        "service": "core4-v7-paper-forward",
+        "strategy_id": "CORE4_V7_BETA_REGIME_DONCHIAN",
+        "paper_only": True,
+        "live_trading": False,
+        "spec_sha256": spec_sha256(),
+        "last_scan_utc": last_scan,
+        "last_scan_age_seconds": round(age_seconds, 1) if age_seconds is not None else None,
+        "scan_stale_after_seconds": stale_after,
+        "background_scan_enabled": BACKGROUND_SCAN_ENABLED,
+        "background_thread_alive": thread_alive,
+    }
+    return payload, healthy
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "Core4V7PaperForward/1.0"
 
@@ -109,6 +161,7 @@ class Handler(BaseHTTPRequestHandler):
         body = json_body(payload)
         self.send_response(status)
         self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -117,17 +170,11 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         state = ENGINE.store.load()
         if parsed.path in {"/", "/health"}:
-            self.send_json(
-                {
-                    "status": "ok",
-                    "service": "core4-v7-paper-forward",
-                    "strategy_id": "CORE4_V7_BETA_REGIME_DONCHIAN",
-                    "paper_only": True,
-                    "live_trading": False,
-                    "spec_sha256": spec_sha256(),
-                    "last_scan_utc": state.get("last_scan_utc"),
-                }
-            )
+            payload, healthy = health_payload(state)
+            status = HTTPStatus.OK
+            if parsed.path == "/health" and not healthy:
+                status = HTTPStatus.SERVICE_UNAVAILABLE
+            self.send_json(payload, status)
             return
         if parsed.path == "/status":
             self.send_json(state)
@@ -179,8 +226,8 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> None:
+    global BACKGROUND_THREAD
     port = int(os.getenv("PORT", "10001"))
-    disable_background = os.getenv("CORE4_DISABLE_BACKGROUND_SCAN", "false").lower() in {"1", "true", "yes"}
     print(
         json.dumps(
             {
@@ -190,14 +237,17 @@ def main() -> None:
                 "spec_sha256": spec_sha256(),
                 "scan_interval_seconds": CONFIG.scan_interval_seconds,
                 "telegram_configured": TELEGRAM.configured,
-                "background_scan": not disable_background,
+                "background_scan": BACKGROUND_SCAN_ENABLED,
             },
             sort_keys=True,
         ),
         flush=True,
     )
-    if not disable_background:
-        threading.Thread(target=background_loop, daemon=True).start()
+    if BACKGROUND_SCAN_ENABLED:
+        BACKGROUND_THREAD = threading.Thread(
+            target=background_loop, name="core4-background-scan", daemon=True
+        )
+        BACKGROUND_THREAD.start()
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 

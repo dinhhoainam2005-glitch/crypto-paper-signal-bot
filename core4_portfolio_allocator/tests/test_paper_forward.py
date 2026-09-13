@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import json
 import sys
 import tempfile
 import unittest
+import urllib.error
 from pathlib import Path
 
 
@@ -12,7 +12,11 @@ WORKSPACE = ROOT.parent
 if str(WORKSPACE) not in sys.path:
     sys.path.insert(0, str(WORKSPACE))
 
-from core4_portfolio_allocator.paper_forward.clients import BinanceClient, Candle
+from core4_portfolio_allocator.paper_forward.clients import (
+    BinanceClient,
+    Candle,
+    SOURCE_SPOT_FALLBACK,
+)
 from core4_portfolio_allocator.paper_forward.config import (
     EXPECTED_SPEC_SHA256,
     RuntimeConfig,
@@ -87,29 +91,41 @@ class FailingClient(FakeClient):
         raise OSError("offline")
 
 
+class SourceMismatchClient(FakeClient):
+    def daily_candles_with_source(
+        self, symbol: str, limit: int = 260
+    ) -> tuple[list[Candle], str]:
+        return self.daily[symbol], SOURCE_SPOT_FALLBACK
+
+
 class SpotFallbackClient(BinanceClient):
     def __init__(self) -> None:
         super().__init__(timeout_seconds=0.1, retries=2)
-        self.base_urls = ("https://blocked-futures.example",)
+        self.base_urls = (
+            "https://blocked-futures-1.example",
+            "https://blocked-futures-2.example",
+        )
         self.calls: list[tuple[str, str]] = []
 
     def _request_json(self, base_url: str, path: str, params: dict) -> object:
         self.calls.append((base_url, path))
         if base_url in self.base_urls:
-            raise json.JSONDecodeError("non-json", "", 0)
+            raise urllib.error.HTTPError(base_url, 451, "blocked", {}, None)
         return [[1_700_000_000_000, "100", "102", "99", "101", "1", 1_700_086_399_999]]
 
 
 class PaperForwardTests(unittest.TestCase):
     def test_daily_candles_fall_back_to_public_spot_market_data(self) -> None:
         client = SpotFallbackClient()
-        candles = client.daily_candles("BTCUSDT", limit=1)
+        candles, source = client.daily_candles_with_source("BTCUSDT", limit=1)
         self.assertEqual(len(candles), 1)
         self.assertEqual(candles[0].close, 101.0)
+        self.assertEqual(source, SOURCE_SPOT_FALLBACK)
         self.assertEqual(
             client.calls,
             [
-                ("https://blocked-futures.example", "/fapi/v1/klines"),
+                ("https://blocked-futures-1.example", "/fapi/v1/klines"),
+                ("https://blocked-futures-2.example", "/fapi/v1/klines"),
                 ("https://data-api.binance.vision", "/api/v3/klines"),
             ],
         )
@@ -180,6 +196,30 @@ class PaperForwardTests(unittest.TestCase):
             self.assertEqual(len(result["state"]["active_positions"]), 0)
             self.assertTrue(
                 all(item["status"] == "SUPPRESSED_STALE" for item in result["state"]["signals"])
+            )
+
+    def test_engine_fails_closed_on_spot_fallback(self) -> None:
+        markets = daily_series("LONG")
+        now_ms = markets["BTCUSDT"][-1].open_time_ms + 60_000
+        with tempfile.TemporaryDirectory() as directory:
+            config = RuntimeConfig(
+                Path(directory) / "state.json", 60, 3600, 600, 40.0, 1500, False, True, True
+            )
+            engine = ForwardEngine(
+                client=SourceMismatchClient(markets),
+                store=ForwardStore(config.state_path, spec_sha256()),
+                config=config,
+            )
+            result = engine.scan(now_ms)
+            self.assertEqual(result["status"], "DEGRADED")
+            self.assertEqual(result["source_mismatches"], list(markets))
+            self.assertEqual(result["state"]["active_positions"], [])
+            self.assertEqual(len(result["state"]["signals"]), 4)
+            self.assertTrue(
+                all(
+                    item["status"] == "SUPPRESSED_SOURCE_MISMATCH"
+                    for item in result["state"]["signals"]
+                )
             )
 
     def test_degraded_scan_keeps_complete_response_contract(self) -> None:

@@ -34,21 +34,34 @@ def display_time(iso_value: str) -> str:
     return f"UTC {utc:%Y-%m-%d %H:%M} | VN {vn:%Y-%m-%d %H:%M}"
 
 
+def source_summary(scan: dict[str, Any]) -> tuple[int, int]:
+    groups = scan.get("groups", [])
+    trusted = sum(group.get("source_trusted") is True for group in groups)
+    fallback = sum(group.get("source_trusted") is False for group in groups)
+    return trusted, fallback
+
+
 def format_startup(scan: dict[str, Any]) -> str:
     ready = sum(group.get("status") == "READY" for group in scan.get("groups", []))
-    return "\n".join(
-        [
+    trusted, fallback = source_summary(scan)
+    lines = [
             "💎📡 <b>CORE4 V7 PAPER-FORWARD ĐÃ KHỞI ĐỘNG</b>",
             "━━━━━━━━━━━━━━━━━━━━━━━━",
             f"✅ Hệ thống: <b>{'ỔN' if scan.get('status') == 'OK' else 'SUY GIẢM'}</b> | Dữ liệu: <b>{ready}/4</b>",
             "📊 Thị trường: <b>BTC / ETH / SOL / BNB</b> | Khung: <b>1D</b>",
             "↕️ Hướng: <b>LONG + SHORT</b> | Quét: <b>mỗi 1 phút</b>",
             "🎯 Kế hoạch: <b>Entry + SL + TP1/TP2/TP3 + giữ tối đa 90 ngày</b>",
+            f"🧾 Nguồn Binance Futures xác minh: <b>{trusted}/4</b>",
             "🧪 Trạng thái: <b>PAPER-FORWARD / KHÔNG ĐẶT LỆNH</b>",
             "🔐 Cấu hình V7 đã khóa SHA-256; bot R26A cũ hoạt động độc lập.",
             f"🕒 {esc(display_time(scan['time_utc']))}",
-        ]
-    )
+    ]
+    if fallback:
+        lines.insert(
+            -3,
+            f"⚠️ Spot fallback: <b>{fallback}/4</b> | Tín hiệu Trade bị khóa để bảo toàn chất lượng",
+        )
+    return "\n".join(lines)
 
 
 def format_signal(signal: dict[str, Any]) -> str:
@@ -77,6 +90,7 @@ def format_signal(signal: dict[str, Any]) -> str:
             "• Sau TP1: dời SL về hòa vốn | Sau TP2: dời SL lên TP1",
             "• Thoát sớm: đóng ngày phá kênh Donchian 20 ngày ngược hướng",
             "• Giữ tối đa: <b>90 ngày</b> | Rà soát: <b>mỗi ngày</b>",
+            "• Nguồn: <b>BINANCE USD-M FUTURES ĐÃ XÁC MINH</b>",
             f"• Cửa sổ Entry: <b>{signal.get('entry_window_seconds', 600) / 60.0:.0f} phút</b> | Không đuổi quá <b>{signal.get('max_chase_bps', 40.0):.0f} bps</b>",
             "",
             f"🕯️ Tín hiệu: {esc(display_time(signal['signal_time_utc']))}",
@@ -148,21 +162,24 @@ def performance(state: dict[str, Any]) -> tuple[int, float, float, float]:
 
 def format_heartbeat(scan: dict[str, Any], state: dict[str, Any]) -> str:
     ready = sum(group.get("status") == "READY" for group in scan.get("groups", []))
+    trusted, fallback = source_summary(scan)
     count, win_rate, pf, mean_r = performance(state)
     pf_label = f"{pf:.2f}" if math.isfinite(pf) else "∞"
-    return "\n".join(
-        [
+    lines = [
             "💓💎 <b>CORE4 V7 PAPER-FORWARD — BÁO SỐNG</b>",
             "━━━━━━━━━━━━━━━━━━━━━━━━",
             f"✅ Hệ thống: <b>{'ỔN' if scan.get('status') == 'OK' else 'SUY GIẢM'}</b> | Dữ liệu: <b>{ready}/4</b>",
             f"📂 Vị thế mở: <b>{len(state.get('active_positions', []))}</b> | Đã đóng: <b>{count}</b>",
             f"📈 Forward: Win <code>{win_rate:.1%}</code> | PF <code>{pf_label}</code> | Mean <code>{mean_r:+.3f}R</code>",
             f"💰 Equity paper: <code>{float(state.get('equity', 1.0)):.4f}</code>",
+            f"🧾 Nguồn Futures xác minh: <b>{trusted}/4</b> | Spot fallback: <b>{fallback}/4</b>",
             "🎯 1D LONG + SHORT | BTC / ETH / SOL / BNB",
             "🔒 <b>PAPER ONLY / KHÔNG TỰ ĐẶT LỆNH</b>",
             f"🕒 {esc(display_time(scan['time_utc']))}",
-        ]
-    )
+    ]
+    if fallback:
+        lines.insert(-3, "⚠️ <b>TRADE BỊ KHÓA KHI NGUỒN FUTURES CHƯA ĐẠT</b>")
+    return "\n".join(lines)
 
 
 class TelegramSender:

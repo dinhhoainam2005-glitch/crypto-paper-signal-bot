@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..signal_contract import TradePlan
-from .clients import BinanceClient, Candle
+from .clients import BinanceClient, Candle, SOURCE_USDM_FUTURES
 from .config import RuntimeConfig, load_locked_spec, spec_sha256
 from .state import ForwardStore, now_iso
 
@@ -385,6 +385,25 @@ class ForwardEngine:
         self.lock = threading.RLock()
         self.symbols = tuple(self.spec["universe"])
 
+    def _daily_candles(self, symbol: str) -> tuple[list[Candle], str]:
+        loader = getattr(self.client, "daily_candles_with_source", None)
+        if loader is None:
+            return self.client.daily_candles(symbol), SOURCE_USDM_FUTURES
+        return loader(symbol)
+
+    def _minute_candles(
+        self, symbol: str, start_ms: int, end_ms: int
+    ) -> tuple[list[Candle], str]:
+        loader = getattr(self.client, "minute_candles_with_source", None)
+        if loader is None:
+            return (
+                self.client.minute_candles(
+                    symbol, start_ms, end_ms, self.config.max_replay_minutes
+                ),
+                SOURCE_USDM_FUTURES,
+            )
+        return loader(symbol, start_ms, end_ms, self.config.max_replay_minutes)
+
     def _replay_position(
         self,
         state: dict[str, Any],
@@ -400,9 +419,14 @@ class ForwardEngine:
         end_ms = now_ms - 1
         if end_ms < start_ms:
             return [], None
-        minutes = self.client.minute_candles(
-            position["symbol"], start_ms, end_ms, self.config.max_replay_minutes
+        minutes, minute_source = self._minute_candles(
+            position["symbol"], start_ms, end_ms
         )
+        if (
+            self.config.require_futures_for_signals
+            and minute_source != SOURCE_USDM_FUTURES
+        ):
+            raise RuntimeError(f"untrusted minute data source: {minute_source}")
         minutes = [candle for candle in minutes if candle.close_time_ms <= now_ms]
         funding = self.client.funding_rates(
             position["symbol"], int(position["last_funding_time_ms"]) + 1, now_ms
@@ -414,19 +438,29 @@ class ForwardEngine:
             now_ms = now_ms or int(datetime.now(timezone.utc).timestamp() * 1000)
             state = self.store.load()
             daily_by_symbol: dict[str, list[Candle]] = {}
+            daily_sources: dict[str, str] = {}
             groups: list[dict[str, Any]] = []
             notifications: list[dict[str, Any]] = []
             errors: list[str] = []
             for symbol in self.symbols:
                 try:
-                    daily_by_symbol[symbol] = self.client.daily_candles(symbol)
+                    candles, source = self._daily_candles(symbol)
+                    daily_by_symbol[symbol] = candles
+                    daily_sources[symbol] = source
                     completed, current = completed_and_current(daily_by_symbol[symbol], now_ms)
+                    ready = len(completed) >= SMA_DAYS and current is not None
+                    source_trusted = source == SOURCE_USDM_FUTURES
+                    group_status = "READY" if ready else "DATA_NOT_READY"
+                    if ready and self.config.require_futures_for_signals and not source_trusted:
+                        group_status = "SOURCE_MISMATCH"
                     groups.append(
                         {
                             "symbol": symbol,
-                            "status": "READY" if len(completed) >= SMA_DAYS and current else "DATA_NOT_READY",
+                            "status": group_status,
                             "completed_bars": len(completed),
                             "latest_close_utc": utc_iso(completed[-1].close_time_ms) if completed else None,
+                            "data_source": source,
+                            "source_trusted": source_trusted,
                         }
                     )
                 except Exception as exc:
@@ -445,6 +479,12 @@ class ForwardEngine:
                     "closed_trades": len(state.get("closed_trades", [])),
                     "equity": state.get("equity", 1.0),
                     "errors": errors,
+                    "source_mismatches": [
+                        group["symbol"]
+                        for group in groups
+                        if group.get("status") == "SOURCE_MISMATCH"
+                    ],
+                    "require_futures_for_signals": self.config.require_futures_for_signals,
                 }
                 state["last_scan"] = scan
                 self.store.save(state)
@@ -453,6 +493,14 @@ class ForwardEngine:
             active_after_replay: list[dict[str, Any]] = []
             for position in state.get("active_positions", []):
                 try:
+                    position_source = daily_sources[position["symbol"]]
+                    if (
+                        self.config.require_futures_for_signals
+                        and position_source != SOURCE_USDM_FUTURES
+                    ):
+                        raise RuntimeError(
+                            f"untrusted daily data source: {position_source}"
+                        )
                     events, trade = self._replay_position(
                         state, position, daily_by_symbol[position["symbol"]], now_ms
                     )
@@ -482,12 +530,27 @@ class ForwardEngine:
                 candidate["detected_at_utc"] = utc_iso(now_ms)
                 candidate["entry_window_seconds"] = self.config.max_entry_lag_seconds
                 candidate["max_chase_bps"] = self.config.max_chase_bps
+                candidate["data_sources"] = {
+                    symbol: daily_sources[symbol],
+                    "BTCUSDT": daily_sources["BTCUSDT"],
+                }
+                candidate["source_gate_passed"] = all(
+                    source == SOURCE_USDM_FUTURES
+                    for source in candidate["data_sources"].values()
+                )
                 lag_seconds = max(0.0, (now_ms - candidate["entry_time_ms"]) / 1000.0)
                 direction = 1.0 if candidate["plan"]["side"] == "LONG" else -1.0
                 chase_bps = direction * (current.close / candidate["plan"]["entry"] - 1.0) * 10_000.0
                 candidate["entry_lag_seconds"] = lag_seconds
                 candidate["directional_chase_bps"] = chase_bps
-                if errors:
+                if (
+                    self.config.require_futures_for_signals
+                    and not candidate["source_gate_passed"]
+                ):
+                    candidate["status"] = "SUPPRESSED_SOURCE_MISMATCH"
+                    state.setdefault("signals", []).append(candidate)
+                    notifications.append(candidate)
+                elif errors:
                     candidate["status"] = "SUPPRESSED_DEGRADED"
                     state.setdefault("signals", []).append(candidate)
                     notifications.append(candidate)
@@ -565,7 +628,12 @@ class ForwardEngine:
             state["events"] = state.get("events", [])[-1000:]
             if errors:
                 state["errors"] = (state.get("errors", []) + [{"time_utc": now_iso(), "message": item} for item in errors])[-50:]
-            status = "OK" if not errors else "DEGRADED"
+            source_mismatches = [
+                group["symbol"]
+                for group in groups
+                if group.get("status") == "SOURCE_MISMATCH"
+            ]
+            status = "OK" if not errors and not source_mismatches else "DEGRADED"
             scan = {
                 "status": status,
                 "time_utc": utc_iso(now_ms),
@@ -575,6 +643,8 @@ class ForwardEngine:
                 "closed_trades": len(state["closed_trades"]),
                 "equity": state["equity"],
                 "errors": errors,
+                "source_mismatches": source_mismatches,
+                "require_futures_for_signals": self.config.require_futures_for_signals,
             }
             state["last_scan"] = scan
             self.store.save(state)

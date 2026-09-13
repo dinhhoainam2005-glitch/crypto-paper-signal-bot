@@ -18,6 +18,7 @@
 | `CORE4_MAX_ENTRY_LAG_SECONDS` | `600` |
 | `CORE4_MAX_CHASE_BPS` | `40` |
 | `CORE4_MAX_REPLAY_MINUTES` | `1500` |
+| `CORE4_REQUIRE_FUTURES_FOR_SIGNALS` | `true` |
 | `CORE4_TELEGRAM_ENABLED` | `true` after explicit activation |
 | `CORE4_TELEGRAM_STARTUP_ENABLED` | `true` |
 | `CORE4_TELEGRAM_HEARTBEAT_ENABLED` | `true` |
@@ -29,6 +30,11 @@ The persistent disk is necessary for signal deduplication, open-position
 recovery, and forward statistics across deploys. A service that sleeps through
 00:00-00:10 UTC can miss the frozen entry window, so the deployment template is
 Starter rather than Free.
+
+The runtime labels every market-data response. With
+`CORE4_REQUIRE_FUTURES_FOR_SIGNALS=true`, a Binance spot fallback may keep the
+service observable, but it cannot open or replay a paper trade. The heartbeat
+shows the verified Futures and fallback counts explicitly.
 
 ## Message policy
 

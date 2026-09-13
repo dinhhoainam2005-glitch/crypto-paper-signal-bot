@@ -51,6 +51,7 @@ class RuntimeConfig:
     telegram_enabled: bool
     startup_enabled: bool
     heartbeat_enabled: bool
+    require_futures_for_signals: bool = True
 
     @classmethod
     def from_env(cls) -> "RuntimeConfig":
@@ -64,4 +65,7 @@ class RuntimeConfig:
             telegram_enabled=env_bool("CORE4_TELEGRAM_ENABLED", False),
             startup_enabled=env_bool("CORE4_TELEGRAM_STARTUP_ENABLED", True),
             heartbeat_enabled=env_bool("CORE4_TELEGRAM_HEARTBEAT_ENABLED", True),
+            require_futures_for_signals=env_bool(
+                "CORE4_REQUIRE_FUTURES_FOR_SIGNALS", True
+            ),
         )

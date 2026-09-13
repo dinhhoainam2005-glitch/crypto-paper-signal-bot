@@ -11,6 +11,9 @@ from typing import Any
 
 
 RETRYABLE = {403, 418, 429, 500, 502, 503, 504}
+SOURCE_USDM_FUTURES = "BINANCE_USDM_FUTURES"
+SOURCE_SPOT_FALLBACK = "BINANCE_SPOT_FALLBACK"
+SOURCE_MIXED = "MIXED_MARKET_DATA"
 
 
 @dataclass(frozen=True)
@@ -69,63 +72,79 @@ class BinanceClient:
         with urllib.request.urlopen(request, timeout=self.timeout_seconds) as response:
             return json.loads(response.read().decode("utf-8"))
 
-    def _request(
+    def _request_with_source(
         self,
         path: str,
         params: dict[str, Any],
         spot_fallback_path: str | None = None,
-    ) -> Any:
+    ) -> tuple[Any, str]:
         last_error: Exception | None = None
-        futures_urls = self.base_urls
-        if spot_fallback_path is not None:
-            # Market data must not stall a scan while every futures alias is
-            # blocked by the hosting region. Probe the primary once, then use
-            # Binance's public market-data host immediately.
-            try:
-                return self._request_json(self.base_urls[0], path, params)
-            except Exception as exc:
-                last_error = exc
-            try:
-                return self._request_json(
-                    self.spot_market_base_url, spot_fallback_path, params
-                )
-            except Exception as exc:
-                last_error = exc
-            futures_urls = self.base_urls[1:]
-
-        for base_url in futures_urls:
+        for base_url in self.base_urls:
             for attempt in range(self.retries + 1):
                 try:
-                    return self._request_json(base_url, path, params)
+                    return self._request_json(base_url, path, params), SOURCE_USDM_FUTURES
                 except Exception as exc:
                     last_error = exc
                     retryable = not isinstance(exc, urllib.error.HTTPError) or exc.code in RETRYABLE
                     if not retryable or attempt >= self.retries:
                         break
                     time.sleep(0.25 * (attempt + 1))
+        if spot_fallback_path is not None:
+            try:
+                return (
+                    self._request_json(
+                        self.spot_market_base_url, spot_fallback_path, params
+                    ),
+                    SOURCE_SPOT_FALLBACK,
+                )
+            except Exception as exc:
+                last_error = exc
         assert last_error is not None
         raise last_error
 
+    def _request(
+        self,
+        path: str,
+        params: dict[str, Any],
+        spot_fallback_path: str | None = None,
+    ) -> Any:
+        payload, _ = self._request_with_source(path, params, spot_fallback_path)
+        return payload
+
     def daily_candles(self, symbol: str, limit: int = 260) -> list[Candle]:
-        return parse_candles(
-            self._request(
-                "/fapi/v1/klines",
-                {"symbol": symbol, "interval": "1d", "limit": limit},
-                spot_fallback_path="/api/v3/klines",
-            )
+        candles, _ = self.daily_candles_with_source(symbol, limit)
+        return candles
+
+    def daily_candles_with_source(
+        self, symbol: str, limit: int = 260
+    ) -> tuple[list[Candle], str]:
+        payload, source = self._request_with_source(
+            "/fapi/v1/klines",
+            {"symbol": symbol, "interval": "1d", "limit": limit},
+            spot_fallback_path="/api/v3/klines",
         )
+        return parse_candles(payload), source
 
     def minute_candles(
         self, symbol: str, start_ms: int, end_ms: int, max_minutes: int
     ) -> list[Candle]:
+        candles, _ = self.minute_candles_with_source(
+            symbol, start_ms, end_ms, max_minutes
+        )
+        return candles
+
+    def minute_candles_with_source(
+        self, symbol: str, start_ms: int, end_ms: int, max_minutes: int
+    ) -> tuple[list[Candle], str]:
         if end_ms < start_ms:
-            return []
+            return [], SOURCE_USDM_FUTURES
         if (end_ms - start_ms) // 60_000 + 1 > max_minutes:
             raise RuntimeError(f"minute replay exceeds limit for {symbol}")
         output: list[list[Any]] = []
+        sources: set[str] = set()
         cursor = start_ms
         while cursor <= end_ms:
-            page = self._request(
+            page, source = self._request_with_source(
                 "/fapi/v1/klines",
                 {
                     "symbol": symbol,
@@ -136,6 +155,7 @@ class BinanceClient:
                 },
                 spot_fallback_path="/api/v3/klines",
             )
+            sources.add(source)
             if not page:
                 break
             output.extend(page)
@@ -146,15 +166,20 @@ class BinanceClient:
             if len(page) < 1500:
                 break
         deduplicated = {int(row[0]): row for row in output}
-        return parse_candles([deduplicated[key] for key in sorted(deduplicated)])
+        source = next(iter(sources)) if len(sources) == 1 else SOURCE_MIXED
+        return parse_candles([deduplicated[key] for key in sorted(deduplicated)]), source
 
     def ticker_price(self, symbol: str) -> float:
-        payload = self._request(
+        value, _ = self.ticker_price_with_source(symbol)
+        return value
+
+    def ticker_price_with_source(self, symbol: str) -> tuple[float, str]:
+        payload, source = self._request_with_source(
             "/fapi/v2/ticker/price",
             {"symbol": symbol},
             spot_fallback_path="/api/v3/ticker/price",
         )
-        return float(payload["price"])
+        return float(payload["price"]), source
 
     def funding_rates(self, symbol: str, start_ms: int, end_ms: int) -> list[dict[str, Any]]:
         if end_ms < start_ms:

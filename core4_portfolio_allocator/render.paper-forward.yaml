@@ -19,6 +19,8 @@ services:
         value: "40"
       - key: CORE4_MAX_REPLAY_MINUTES
         value: "1500"
+      - key: CORE4_REQUIRE_FUTURES_FOR_SIGNALS
+        value: "true"
       - key: CORE4_TELEGRAM_ENABLED
         value: "true"
       - key: CORE4_TELEGRAM_STARTUP_ENABLED
