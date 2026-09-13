@@ -227,6 +227,25 @@ class PaperForwardTests(unittest.TestCase):
             self.assertEqual(len(funding), 1)
             self.assertEqual(float(funding[0]["fundingRate"]), 0.0001)
 
+    def test_futures_stream_uses_current_binance_market_endpoint(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            client = BinanceFuturesStreamClient(
+                root / "stream.json",
+                root / "archive",
+                symbols=("BTCUSDT",),
+                start_stream=False,
+            )
+            url = client._stream_url()
+            self.assertTrue(
+                url.startswith(
+                    "wss://fstream.binance.com/market/stream?streams="
+                )
+            )
+            self.assertIn("btcusdt@kline_1d", url)
+            self.assertIn("btcusdt@kline_1m", url)
+            self.assertIn("btcusdt@markPrice@1s", url)
+
     def test_daily_candles_fall_back_to_public_spot_market_data(self) -> None:
         client = SpotFallbackClient()
         candles, source = client.daily_candles_with_source("BTCUSDT", limit=1)

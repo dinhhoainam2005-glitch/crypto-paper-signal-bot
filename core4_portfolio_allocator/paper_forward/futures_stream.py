@@ -20,7 +20,7 @@ from .clients import Candle, SOURCE_USDM_FUTURES
 DAY_MS = 86_400_000
 MINUTE_MS = 60_000
 ARCHIVE_BASE = "https://data.binance.vision/data/futures/um"
-STREAM_BASE = "wss://fstream.binance.com/stream?streams="
+STREAM_BASE = "wss://fstream.binance.com/market/stream?streams="
 DEFAULT_SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT")
 
 
