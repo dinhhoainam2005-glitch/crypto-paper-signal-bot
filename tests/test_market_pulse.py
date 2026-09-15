@@ -32,9 +32,13 @@ class MarketPulseTests(unittest.TestCase):
         for direction, side in [(1, "LONG"), (-1, "SHORT")]:
             with self.subTest(side=side):
                 result = evaluate_market_pulses(market_rows(direction), AT+60000)
-                self.assertEqual(len(result["events"]), 12)
+                self.assertEqual(len(result["events"]), 8)
                 self.assertTrue(all(e["side"] == side for e in result["events"]))
                 self.assertTrue(all(e["watch_only"] and e["auto_trade"] is False for e in result["events"]))
+                self.assertEqual(
+                    {event["timeframe"] for event in result["events"]},
+                    {"1h", "4h"},
+                )
 
     def test_open_candle_never_creates_event_and_expired_not_replayed(self):
         rows = market_rows()
@@ -44,7 +48,7 @@ class MarketPulseTests(unittest.TestCase):
     def test_missing_stale_invalid_and_nan_feeds_not_used_for_breadth(self):
         for bad in ("missing", "gap", "stale", "nan"):
             rows = market_rows()
-            for key in [("ETHUSDT", "15m"), ("SOLUSDT", "15m"), ("BNBUSDT", "15m")]:
+            for key in [("ETHUSDT", "1h"), ("SOLUSDT", "1h"), ("BNBUSDT", "1h")]:
                 if bad == "missing":
                     rows.pop(key)
                 elif bad == "gap":
@@ -54,7 +58,7 @@ class MarketPulseTests(unittest.TestCase):
                 else:
                     rows[key][-1][4] = "nan"
             result = evaluate_market_pulses(rows, AT+60000)
-            self.assertFalse(any(e["timeframe"] == "15m" for e in result["events"]), bad)
+            self.assertFalse(any(e["timeframe"] == "1h" for e in result["events"]), bad)
 
     def test_service_dedupe_across_reload_cap_does_not_starve_and_no_position(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -64,7 +68,7 @@ class MarketPulseTests(unittest.TestCase):
             service.client = FakeClient(market_rows(), [])
             service.store = JsonStore(Path(tmp)/"state.json")
             first = service.scan_once(now_ms_override=AT+60000)
-            self.assertEqual(first["scan"]["new_market_event_count"], 12)
+            self.assertEqual(first["scan"]["new_market_event_count"], 8)
             # New service process with the same persisted ledger.
             second_service = SignalService()
             second_service.liquidity_enabled = False
@@ -74,11 +78,11 @@ class MarketPulseTests(unittest.TestCase):
             second = second_service.scan_once(now_ms_override=AT+61000)
             third = second_service.scan_once(now_ms_override=AT+62000)
             fourth = second_service.scan_once(now_ms_override=AT+63000)
-            self.assertEqual(len(third["state"]["market_events"]), 12)
+            self.assertEqual(len(third["state"]["market_events"]), 8)
             self.assertEqual(fourth["scan"]["new_market_event_count"], 0)
             self.assertEqual(second["scan"]["new_market_event_count"], 0)
             self.assertEqual(second["state"]["active_positions"], [])
-            self.assertEqual(len({e["event_id"] for e in third["state"]["market_events"]}), 12)
+            self.assertEqual(len({e["event_id"] for e in third["state"]["market_events"]}), 8)
 
     def test_delivery_retries_only_pending_and_expires_old_events(self):
         with tempfile.TemporaryDirectory() as tmp:

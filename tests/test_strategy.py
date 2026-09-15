@@ -193,6 +193,7 @@ class StrategyTests(unittest.TestCase):
         self.assertIn("📌 Chế độ: <b>PAPER / WATCH ONLY</b>", startup)
         self.assertIn("BTC, ETH 1h/4h", startup)
         self.assertIn("SOL, BNB 4h", startup)
+        self.assertIn("xung lực <b>0/8</b> feed (1h/4h)", startup)
         self.assertIn("🧪 Trade A+: <b>KHÓA</b>", startup)
         self.assertIn("Backtest R31A: <b>CHƯA ĐẠT (8/15)</b>", startup)
         self.assertIn("R40B shadow: xác nhận <b>3</b> | rủi ro <b>1</b> | đã đóng <b>2</b>", startup)

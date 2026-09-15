@@ -29,7 +29,7 @@ services:
       - key: MAX_MARKET_PULSE_LAG_SECONDS
         value: "600"
       - key: MAX_MARKET_PULSE_EVENTS_PER_SCAN
-        value: "12"
+        value: "8"
       - key: LIQUIDITY_INTEL_ENABLED
         value: "true"
       - key: CROWDING_CONFIRMATION_ENABLED

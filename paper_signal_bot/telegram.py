@@ -421,9 +421,9 @@ def format_startup_message(
             heartbeat=esc(interval_label(heartbeat_interval_seconds)),
         ),
         "📊 Tín hiệu: <b>BTC, ETH 1h/4h</b> | <b>SOL, BNB 4h</b>",
-        "🔎 Theo dõi: xung lực <b>{pulse}/{pulse_total}</b> | thanh khoản <b>{liq}/{liq_total}</b> coin (1h/4h/1d)".format(
+        "🔎 Theo dõi: xung lực <b>{pulse}/{pulse_total}</b> feed (1h/4h) | thanh khoản <b>{liq}/{liq_total}</b> coin (1h/4h/1d)".format(
             pulse=esc(pulse_ready),
-            pulse_total=esc(len(pulse_groups) or 12),
+            pulse_total=esc(len(pulse_groups) or 8),
             liq=esc(liquidity_ready),
             liq_total=esc(liquidity_total or 4),
         ),
@@ -561,7 +561,9 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
     ]
     if pulse_groups:
         fresh = sum(g.get("data_state") == "FRESH" and g.get("status") not in {"INSUFFICIENT_HISTORY", "INVALID_DATA", "DATA_GAP"} for g in pulse_groups)
-        lines.append(f"📡 Xung lực: <b>{fresh}/{len(pulse_groups)}</b> feed sẵn sàng")
+        lines.append(
+            f"📡 Xung lực: <b>{fresh}/{len(pulse_groups)}</b> feed sẵn sàng | TF <b>1h/4h</b>"
+        )
     if liquidity_groups:
         ready, total = liquidity_symbol_readiness(liquidity_groups)
         strongest = max(
