@@ -51,6 +51,8 @@ def format_startup(scan: dict[str, Any]) -> str:
             "📊 Thị trường: <b>BTC / ETH / SOL / BNB</b> | Khung: <b>1D</b>",
             "↕️ Hướng: <b>LONG + SHORT</b> | Quét: <b>mỗi 1 phút</b>",
             "🎯 Kế hoạch: <b>Entry + SL + TP1/TP2/TP3 + giữ tối đa 90 ngày</b>",
+            "💎 Phân tầng: <b>V7 STANDARD</b> | <b>A+ khi ≥2 coin cùng kỳ xác nhận</b>",
+            "🧭 MTF 1h/4h: <b>CHỈ BỐI CẢNH / KHÔNG TỰ SINH LỆNH</b>",
             f"🧾 Nguồn Binance Futures xác minh: <b>{trusted}/4</b>",
             "🧪 Trạng thái: <b>PAPER-FORWARD / KHÔNG ĐẶT LỆNH</b>",
             "🔐 Cấu hình V7 đã khóa SHA-256; bot R26A cũ hoạt động độc lập.",
@@ -69,12 +71,23 @@ def format_signal(signal: dict[str, Any]) -> str:
     is_long = plan["side"] == "LONG"
     header = "🟢🔺" if is_long else "🔴🔻"
     action = "LONG (MUA)" if is_long else "SHORT (BÁN)"
+    quality_tier = signal.get("quality_tier", "STANDARD")
+    is_cross_market = quality_tier == "A_PLUS_CROSS_MARKET"
+    quality_label = "A+ CROSS-MARKET" if is_cross_market else "V7 STANDARD"
+    quality_icon = "💎" if is_cross_market else "📘"
+    confirmations = ", ".join(
+        symbol.replace("USDT", "")
+        for symbol in signal.get("cross_market_symbols", [plan["symbol"]])
+    )
     return "\n".join(
         [
             f"{header} <b>CORE4 V7 PAPER {action} — {esc(plan['symbol'])}</b>",
             "━━━━━━━━━━━━━━━━━━━━━━━━",
             "✅ <b>TÍN HIỆU PAPER-FORWARD HỢP LỆ</b>",
             f"⏱️ Khung: <b>1D</b> | Hướng: <b>{action}</b>",
+            f"{quality_icon} Chất lượng: <b>{quality_label}</b>",
+            f"• Xác nhận chéo: <b>{signal.get('cross_market_count', 1)}/4</b> | {esc(confirmations)}",
+            "• MTF 1h/4h: <b>chỉ bối cảnh, không tạo lệnh</b>",
             "",
             "📍 <b>KẾ HOẠCH GIÁ</b>",
             f"• Giá hiện tại: <code>{price(signal['current_price'])}</code>",
@@ -121,6 +134,7 @@ def format_position_event(event: dict[str, Any]) -> str:
             f"📌 <b>CORE4 V7 — {esc(reason)}</b>",
             "━━━━━━━━━━━━━━━━━━━━━━━━",
             f"• {esc(event['symbol'])} | <b>{esc(event['side'])}</b>",
+            f"• Tầng: <b>{esc(event.get('quality_label', 'V7 STANDARD'))}</b>",
             f"• Giá: <code>{price(event['price'])}</code>",
             f"• Vị thế còn lại: <code>{100.0 * event['remaining_fraction']:.1f}%</code>",
             f"• Thời gian: {esc(display_time(event['time_utc']))}",
@@ -138,6 +152,7 @@ def format_trade_closed(trade: dict[str, Any]) -> str:
             f"{icon} <b>CORE4 V7 — ĐÃ ĐÓNG {esc(trade['symbol'])} {esc(trade['side'])}</b>",
             "━━━━━━━━━━━━━━━━━━━━━━━━",
             f"• Kết quả: <b>{result}</b> | <code>{trade['realized_r']:+.3f}R</code>",
+            f"• Tầng: <b>{esc(trade.get('quality_label', 'V7 STANDARD'))}</b>",
             f"• Entry: <code>{price(trade['entry'])}</code> | Exit: <code>{price(trade['exit_price'])}</code>",
             f"• Lý do: <code>{esc(trade['exit_reason'])}</code>",
             f"• Thời gian giữ: <code>{trade['holding_hours'] / 24.0:.1f} ngày</code>",
@@ -148,8 +163,16 @@ def format_trade_closed(trade: dict[str, Any]) -> str:
     )
 
 
-def performance(state: dict[str, Any]) -> tuple[int, float, float, float]:
+def performance(
+    state: dict[str, Any], quality_tier: str | None = None
+) -> tuple[int, float, float, float]:
     trades = state.get("closed_trades", [])
+    if quality_tier is not None:
+        trades = [
+            trade
+            for trade in trades
+            if trade.get("quality_tier", "STANDARD") == quality_tier
+        ]
     if not trades:
         return 0, 0.0, 0.0, 0.0
     wins = sum(float(trade["net_pnl"]) > 0.0 for trade in trades)
@@ -164,16 +187,34 @@ def format_heartbeat(scan: dict[str, Any], state: dict[str, Any]) -> str:
     ready = sum(group.get("status") == "READY" for group in scan.get("groups", []))
     trusted, fallback = source_summary(scan)
     count, win_rate, pf, mean_r = performance(state)
+    standard_count, standard_win, standard_pf, _ = performance(state, "STANDARD")
+    aplus_count, aplus_win, aplus_pf, _ = performance(
+        state, "A_PLUS_CROSS_MARKET"
+    )
     pf_label = f"{pf:.2f}" if math.isfinite(pf) else "∞"
+    standard_pf_label = f"{standard_pf:.2f}" if math.isfinite(standard_pf) else "∞"
+    aplus_pf_label = f"{aplus_pf:.2f}" if math.isfinite(aplus_pf) else "∞"
+    active = state.get("active_positions", [])
+    standard_open = sum(
+        position.get("quality_tier", "STANDARD") == "STANDARD"
+        for position in active
+    )
+    aplus_open = sum(
+        position.get("quality_tier") == "A_PLUS_CROSS_MARKET"
+        for position in active
+    )
     lines = [
             "💓💎 <b>CORE4 V7 PAPER-FORWARD — BÁO SỐNG</b>",
             "━━━━━━━━━━━━━━━━━━━━━━━━",
             f"✅ Hệ thống: <b>{'ỔN' if scan.get('status') == 'OK' else 'SUY GIẢM'}</b> | Dữ liệu: <b>{ready}/4</b>",
             f"📂 Vị thế mở: <b>{len(state.get('active_positions', []))}</b> | Đã đóng: <b>{count}</b>",
             f"📈 Forward: Win <code>{win_rate:.1%}</code> | PF <code>{pf_label}</code> | Mean <code>{mean_r:+.3f}R</code>",
+            f"💎 A+ chéo: mở <b>{aplus_open}</b> | đóng <b>{aplus_count}</b> | Win <code>{aplus_win:.1%}</code> | PF <code>{aplus_pf_label}</code>",
+            f"📘 Standard: mở <b>{standard_open}</b> | đóng <b>{standard_count}</b> | Win <code>{standard_win:.1%}</code> | PF <code>{standard_pf_label}</code>",
             f"💰 Equity paper: <code>{float(state.get('equity', 1.0)):.4f}</code>",
             f"🧾 Nguồn Futures xác minh: <b>{trusted}/4</b> | Spot fallback: <b>{fallback}/4</b>",
             "🎯 1D LONG + SHORT | BTC / ETH / SOL / BNB",
+            "🧭 MTF 1h/4h: BỐI CẢNH | KHÔNG TỰ SINH LỆNH",
             "🔒 <b>PAPER ONLY / KHÔNG TỰ ĐẶT LỆNH</b>",
             f"🕒 {esc(display_time(scan['time_utc']))}",
     ]

@@ -29,6 +29,7 @@ from core4_portfolio_allocator.paper_forward.config import (
 from core4_portfolio_allocator.paper_forward.engine import (
     DAY_MS,
     ForwardEngine,
+    classify_cross_market_candidates,
     evaluate_candidate,
     new_position,
     process_position_path,
@@ -301,6 +302,13 @@ class PaperForwardTests(unittest.TestCase):
             self.assertEqual(len(first["state"]["signals"]), 4)
             self.assertEqual(len(second["state"]["signals"]), 4)
             self.assertEqual(len(second["state"]["active_positions"]), 4)
+            self.assertTrue(
+                all(
+                    signal["quality_tier"] == "A_PLUS_CROSS_MARKET"
+                    and signal["cross_market_count"] == 4
+                    for signal in second["state"]["signals"]
+                )
+            )
             gross = sum(
                 position["initial_notional"] for position in second["state"]["active_positions"]
             )
@@ -407,6 +415,7 @@ class PaperForwardTests(unittest.TestCase):
             directional_chase_bps=0.0,
             notional_fraction_allocated=0.1,
         )
+        classify_cross_market_candidates([signal])
         text = format_signal(signal)
         for required in (
             "Entry tham chiếu",
@@ -416,8 +425,37 @@ class PaperForwardTests(unittest.TestCase):
             "TP3",
             "90 ngày",
             "PAPER ONLY",
+            "V7 STANDARD",
+            "chỉ bối cảnh, không tạo lệnh",
         ):
             self.assertIn(required, text)
+
+    def test_cross_market_quality_requires_two_executable_symbols(self) -> None:
+        markets = daily_series("LONG")
+        now_ms = markets["BTCUSDT"][-1].open_time_ms + 60_000
+        signals = [
+            evaluate_candidate(symbol, markets, now_ms)
+            for symbol in ("BTCUSDT", "ETHUSDT")
+        ]
+        executable = [signal for signal in signals if signal is not None]
+        classify_cross_market_candidates(executable)
+        self.assertEqual(len(executable), 2)
+        self.assertTrue(
+            all(
+                signal["quality_tier"] == "A_PLUS_CROSS_MARKET"
+                and signal["cross_market_symbols"] == ["BTCUSDT", "ETHUSDT"]
+                and signal["mtf_can_create_trade"] is False
+                for signal in executable
+            )
+        )
+        text = format_signal(executable[0] | {
+            "current_price": executable[0]["plan"]["entry"],
+            "entry_lag_seconds": 60.0,
+            "directional_chase_bps": 0.0,
+            "notional_fraction_allocated": 0.1,
+        })
+        self.assertIn("A+ CROSS-MARKET", text)
+        self.assertIn("BTC, ETH", text)
 
 
 if __name__ == "__main__":

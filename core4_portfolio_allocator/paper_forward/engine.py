@@ -30,6 +30,9 @@ MAX_HOLD_HOURS = 2160
 RISK_PER_TRADE = 0.0035
 MAX_SYMBOL_NOTIONAL = 0.20
 MAX_INITIAL_GROSS = 0.60
+CROSS_MARKET_MIN_CONFIRMATIONS = 2
+QUALITY_STANDARD = "STANDARD"
+QUALITY_CROSS_MARKET = "A_PLUS_CROSS_MARKET"
 
 
 def utc_iso(milliseconds: int) -> str:
@@ -139,6 +142,32 @@ def evaluate_candidate(
     }
 
 
+def classify_cross_market_candidates(
+    candidates: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Label executable V7 signals without changing their entry or sizing."""
+    symbols_by_decision: dict[int, set[str]] = {}
+    for candidate in candidates:
+        symbols_by_decision.setdefault(int(candidate["entry_time_ms"]), set()).add(
+            str(candidate["plan"]["symbol"])
+        )
+
+    for candidate in candidates:
+        peers = sorted(symbols_by_decision[int(candidate["entry_time_ms"])])
+        cross_market = len(peers) >= CROSS_MARKET_MIN_CONFIRMATIONS
+        candidate.update(
+            quality_tier=(QUALITY_CROSS_MARKET if cross_market else QUALITY_STANDARD),
+            quality_label=("A+ CROSS-MARKET" if cross_market else "V7 STANDARD"),
+            cross_market_count=len(peers),
+            cross_market_threshold=CROSS_MARKET_MIN_CONFIRMATIONS,
+            cross_market_symbols=peers,
+            mtf_policy="CONTEXT_ONLY_NO_TRADE_CREATION",
+            mtf_timeframes=["1h", "4h"],
+            mtf_can_create_trade=False,
+        )
+    return candidates
+
+
 def opposite_channel_exit(
     position: dict[str, Any], daily: list[Candle], decision_open_ms: int
 ) -> bool:
@@ -160,6 +189,15 @@ def new_position(signal: dict[str, Any], equity: float, notional_fraction: float
     risk_cash = quantity * abs(float(plan["entry"]) - float(plan["stop_loss"]))
     return {
         "signal_id": signal["signal_id"],
+        "quality_tier": signal.get("quality_tier", QUALITY_STANDARD),
+        "quality_label": signal.get("quality_label", "V7 STANDARD"),
+        "cross_market_count": int(signal.get("cross_market_count", 1)),
+        "cross_market_symbols": list(
+            signal.get("cross_market_symbols", [plan["symbol"]])
+        ),
+        "mtf_policy": signal.get(
+            "mtf_policy", "CONTEXT_ONLY_NO_TRADE_CREATION"
+        ),
         "symbol": plan["symbol"],
         "side": plan["side"],
         "entry_time_ms": signal["entry_time_ms"],
@@ -211,6 +249,8 @@ def _fill(
         "signal_id": position["signal_id"],
         "symbol": position["symbol"],
         "side": position["side"],
+        "quality_tier": position.get("quality_tier", QUALITY_STANDARD),
+        "quality_label": position.get("quality_label", "V7 STANDARD"),
         "reason": reason,
         "time_ms": time_ms,
         "time_utc": utc_iso(time_ms),
@@ -241,6 +281,15 @@ def _close_trade(state: dict[str, Any], position: dict[str, Any]) -> dict[str, A
     )
     trade = {
         **{key: position[key] for key in ("signal_id", "symbol", "side", "entry_time_utc", "entry", "initial_stop", "initial_notional", "initial_risk_cash", "paper_only")},
+        "quality_tier": position.get("quality_tier", QUALITY_STANDARD),
+        "quality_label": position.get("quality_label", "V7 STANDARD"),
+        "cross_market_count": int(position.get("cross_market_count", 1)),
+        "cross_market_symbols": list(
+            position.get("cross_market_symbols", [position["symbol"]])
+        ),
+        "mtf_policy": position.get(
+            "mtf_policy", "CONTEXT_ONLY_NO_TRADE_CREATION"
+        ),
         "tp1": position["targets"][0],
         "tp2": position["targets"][1],
         "tp3": position["targets"][2],
@@ -593,6 +642,7 @@ class ForwardEngine:
                 if position["symbol"] in marks
             ) / equity
             requested = sum(signal["notional_fraction_requested"] for signal in pending)
+            classify_cross_market_candidates(pending)
             available = max(0.0, MAX_INITIAL_GROSS - existing_gross)
             scale = min(1.0, available / requested) if requested > 0.0 else 0.0
             for signal in pending:
