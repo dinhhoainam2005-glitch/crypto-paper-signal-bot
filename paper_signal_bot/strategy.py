@@ -603,6 +603,8 @@ def trigger_candidate(
         market_ok = True
     features: dict[str, Any] = {
         **market,
+        "family": candidate_item.family,
+        "candidate_id": candidate_item.candidate_id,
         "close": latest["close"],
         "quote_volume_prior_z_20": volz,
         "quote_imbalance": quote_imbalance,
@@ -619,7 +621,17 @@ def trigger_candidate(
         "portfolio_id": PORTFOLIO_ID,
         "portfolio_name": PORTFOLIO_NAME,
     }
+    failed_gates: list[str] = []
+    if has_breadth_gate and market["market_breadth_count"] < int(params["breadth_n"]):
+        failed_gates.append("BREADTH_COUNT")
+    if has_breadth_gate and market["market_directional_mean"] < float(params["market_min"]):
+        failed_gates.append("BREADTH_MEAN")
+    if has_breadth_gate and bool(params.get("leader_required", False)):
+        leader_value = market.get("market_asset_trends", {}).get("BTC")
+        if leader_value is None or leader_value < breadth_min:
+            failed_gates.append("BTC_LEADER")
     if not market_ok:
+        features["failed_gates"] = failed_gates or ["MARKET_GATE"]
         return False, features
 
     if candidate_item.family == "breadth_momentum":
@@ -641,6 +653,13 @@ def trigger_candidate(
                 "volz_min": float(params["volz_min"]),
             }
         )
+        if signal_trend < float(params["signal_min"]):
+            failed_gates.append("TREND")
+        if ret1 < float(params["ret1_min"]):
+            failed_gates.append("BAR_MOMENTUM")
+        if volz < float(params["volz_min"]):
+            failed_gates.append("VOLUME")
+        features["failed_gates"] = failed_gates
         return trigger, features
 
     if candidate_item.family == "breadth_pullback_reclaim":
@@ -650,6 +669,13 @@ def trigger_candidate(
         asset_trend_raw = trend(closes, index, regime_lb)
         asset_trend = directional(asset_trend_raw or 0.0, candidate_item.direction)
         if levels is None or index < 12:
+            features.update(
+                {
+                    "family": candidate_item.family,
+                    "signal_lb": signal_lb,
+                    "failed_gates": [*failed_gates, "HISTORY"],
+                }
+            )
             return False, features
         prior_high, prior_low = levels
         if candidate_item.direction == "LONG":
@@ -679,12 +705,26 @@ def trigger_candidate(
                 "prior_low": prior_low,
             }
         )
+        if asset_trend < float(params["asset_regime_min"]):
+            failed_gates.append("ASSET_TREND")
+        if pullback < float(params["pullback_min"]):
+            failed_gates.append("PULLBACK")
+        if not reclaim:
+            failed_gates.append("RECLAIM")
+        features["failed_gates"] = failed_gates
         return trigger, features
 
     if candidate_item.family == "breadth_breakout":
         lb = int(params["lb"])
         levels = prior_high_low(closed, index, lb)
         if levels is None:
+            features.update(
+                {
+                    "family": candidate_item.family,
+                    "breakout_lb": lb,
+                    "failed_gates": [*failed_gates, "HISTORY"],
+                }
+            )
             return False, features
         prior_high, prior_low = levels
         if candidate_item.direction == "LONG":
@@ -704,12 +744,28 @@ def trigger_candidate(
                 "volz_min": float(params["volz_min"]),
             }
         )
+        if not trigger and not breakout_level:
+            failed_gates.append("BREAKOUT")
+        if candidate_item.direction == "LONG" and latest["close"] <= breakout_level:
+            failed_gates.append("BREAKOUT")
+        if candidate_item.direction == "SHORT" and latest["close"] >= breakout_level:
+            failed_gates.append("BREAKOUT")
+        if volz < float(params["volz_min"]):
+            failed_gates.append("VOLUME")
+        features["failed_gates"] = list(dict.fromkeys(failed_gates))
         return trigger, features
 
     if candidate_item.family == "taker_flow_breakout":
         lb = int(params["lb"])
         levels = prior_high_low(closed, index, lb)
         if levels is None:
+            features.update(
+                {
+                    "family": candidate_item.family,
+                    "breakout_lb": lb,
+                    "failed_gates": [*failed_gates, "HISTORY"],
+                }
+            )
             return False, features
         prior_high, prior_low = levels
         if candidate_item.direction == "LONG":
@@ -742,6 +798,15 @@ def trigger_candidate(
                 "quality_realized_vol_24_min": float(params["quality_realized_vol_24_min"]),
             }
         )
+        if not breakout:
+            failed_gates.append("BREAKOUT")
+        if volz < min_volz:
+            failed_gates.append("VOLUME")
+        if flow_directional < float(params["flow_thr"]):
+            failed_gates.append("TAKER_FLOW")
+        if realized_vol_24 < float(params["quality_realized_vol_24_min"]):
+            failed_gates.append("REALIZED_VOL")
+        features["failed_gates"] = failed_gates
         return trigger, features
 
     if candidate_item.family == "breadth_ema_stack":
@@ -749,6 +814,12 @@ def trigger_candidate(
         ema_mid = ema(closes, 12)
         ema_slow = ema(closes, 24)
         if index < 24 or index < 12 or ema_mid[index - 12] <= 0.0:
+            features.update(
+                {
+                    "family": candidate_item.family,
+                    "failed_gates": [*failed_gates, "HISTORY"],
+                }
+            )
             return False, features
         if candidate_item.direction == "LONG":
             stack = ema_fast[index] > ema_mid[index] > ema_slow[index]
@@ -765,6 +836,11 @@ def trigger_candidate(
                 "slope_min": float(params["slope_min"]),
             }
         )
+        if not stack:
+            failed_gates.append("EMA_STACK")
+        if slope < float(params["slope_min"]):
+            failed_gates.append("EMA_SLOPE")
+        features["failed_gates"] = failed_gates
         return trigger, features
 
     return False, features
@@ -874,6 +950,14 @@ def evaluate_latest(
     raw_signals.sort(key=lambda item: item["candidate"]["selection_score"], reverse=True)
     selected = raw_signals[:1]
     snapshot = selected[0]["features"] if selected else raw_feature_snapshots[0] if raw_feature_snapshots else {}
+    candidate_diagnostics = [
+        {
+            "candidate_id": feature.get("candidate_id"),
+            "family": feature.get("family"),
+            "failed_gates": feature.get("failed_gates", []),
+        }
+        for feature in raw_feature_snapshots
+    ]
     return {
         "symbol": symbol,
         "timeframe": timeframe,
@@ -894,7 +978,9 @@ def evaluate_latest(
             "premium_close_prior_z_24": premium_z,
             "realized_vol_24": realized_vol_24,
             "full_derivatives_state_available": derivatives_state_available,
+            "failed_gates": snapshot.get("failed_gates", []),
         },
+        "candidate_diagnostics": candidate_diagnostics,
         "raw_signal_count": len(raw_signals),
         "signals": selected,
     }

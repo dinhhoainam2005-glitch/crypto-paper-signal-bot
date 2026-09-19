@@ -132,6 +132,26 @@ REASON_LABELS = {
 }
 
 
+GATE_LABELS = {
+    "BREADTH_COUNT": "độ rộng số coin",
+    "BREADTH_MEAN": "độ rộng trung bình",
+    "BTC_LEADER": "BTC dẫn dắt",
+    "TREND": "xu hướng",
+    "BAR_MOMENTUM": "xung lực nến",
+    "VOLUME": "volume",
+    "ASSET_TREND": "xu hướng coin",
+    "PULLBACK": "pullback",
+    "RECLAIM": "reclaim",
+    "BREAKOUT": "breakout",
+    "TAKER_FLOW": "taker flow",
+    "REALIZED_VOL": "biến động thực",
+    "EMA_STACK": "EMA xếp lớp",
+    "EMA_SLOPE": "độ dốc EMA",
+    "HISTORY": "lịch sử chưa đủ",
+    "MARKET_GATE": "cửa thị trường",
+}
+
+
 def side_label(value: Any) -> str:
     text = str(value or "").upper()
     return SIDE_LABELS.get(text, text or "n/a")
@@ -160,6 +180,37 @@ def confidence_label(value: Any) -> str:
 def reason_label(value: Any) -> str:
     text = str(value or "").upper()
     return REASON_LABELS.get(text, text or "n/a")
+
+
+def gate_label(value: Any) -> str:
+    text = str(value or "").upper()
+    return GATE_LABELS.get(text, text.lower().replace("_", " ") or "n/a")
+
+
+def no_signal_diagnostic_lines(groups: list[dict[str, Any]]) -> list[str]:
+    lines: list[str] = []
+    for group in groups:
+        if str(group.get("status", "")).upper() != "NO_SIGNAL":
+            continue
+        diagnostics = group.get("candidate_diagnostics") or []
+        reasons: list[str] = []
+        for diagnostic in diagnostics:
+            for reason in diagnostic.get("failed_gates") or []:
+                label = gate_label(reason)
+                if label not in reasons:
+                    reasons.append(label)
+        if not reasons:
+            reasons = [gate_label(reason) for reason in group.get("failed_gates") or []]
+        if not reasons:
+            reasons = ["chưa đạt một cửa tín hiệu"]
+        lines.append(
+            "• {symbol} {tf}: {reasons}".format(
+                symbol=esc(group.get("symbol", "")),
+                tf=esc(group.get("timeframe", "")),
+                reasons=esc(", ".join(reasons[:4])),
+            )
+        )
+    return lines
 
 
 def macro_title_label(event: dict[str, Any]) -> str:
@@ -193,11 +244,44 @@ def forecast_label(value: Any) -> str:
         return "Chưa có dự báo định lượng; đây là cảnh báo theo lịch chính thức."
     replacements = {
         "Cleveland Fed nowcast:": "Nowcast Cleveland Fed:",
+        "Consensus": "Đồng thuận",
+        "TE forecast": "Dự báo TE",
+        "Previous": "Kỳ trước",
         "updated": "cập nhật",
     }
     for old, new in replacements.items():
         text = text.replace(old, new)
     return text
+
+
+def actual_label(value: Any) -> str:
+    text = "" if value is None else str(value)
+    if not text:
+        return "Chưa có số liệu thực tế được nguồn xác minh."
+    replacements = {
+        "Actual": "Thực tế",
+        "Consensus": "Đồng thuận",
+        "Previous": "Kỳ trước",
+        "Chênh lệch actual - consensus": "Chênh lệch thực tế - đồng thuận",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+    return text
+
+
+def macro_phase_label(value: Any) -> str:
+    labels = {
+        "RESULT": "ĐÃ CÓ KẾT QUẢ",
+        "RESULT_PENDING": "ĐANG CHỜ KẾT QUẢ",
+        "LIVE": "ĐANG DIỄN RA",
+        "T-7D": "T-7 NGÀY",
+        "T-24H": "T-24 GIỜ",
+        "T-6H": "T-6 GIỜ",
+        "T-1H": "T-1 GIỜ",
+        "T-15M": "T-15 PHÚT",
+    }
+    text = str(value or "n/a").upper()
+    return labels.get(text, text)
 
 
 def compact_utc(value: Any) -> str:
@@ -596,6 +680,9 @@ def format_heartbeat_message(scan_summary: dict[str, Any]) -> str:
                 next=esc(next_line),
             )
         )
+    diagnostic_lines = no_signal_diagnostic_lines(groups)
+    if diagnostic_lines:
+        lines.extend(["", "🔍 <b>VÌ SAO CHƯA CÓ LỆNH?</b>", *diagnostic_lines])
     problem_groups = [
         group
         for group in groups
@@ -880,7 +967,7 @@ def format_macro_digest_message(events: list[dict[str, Any]]) -> str:
                 icon=icon,
                 title=esc(macro_title_label(event)),
                 time=esc(compact_vn_label(event.get("event_time_utc"))),
-                phase=esc(event.get("phase", "n/a")),
+                phase=esc(macro_phase_label(event.get("phase", "n/a"))),
             )
         )
     lines.extend(
@@ -904,18 +991,23 @@ def format_macro_event_message(event: dict[str, Any]) -> str:
         timing = "Còn {age}".format(age=duration_label(float(minutes) * 60))
     else:
         timing = "n/a"
+    phase = str(event.get("phase") or "").upper()
+    if phase in {"RESULT", "RESULT_PENDING"} and isinstance(minutes, (int, float)):
+        timing = "Đã công bố {age} trước".format(age=duration_label(abs(float(minutes)) * 60))
     forecast = forecast_label(event.get("forecast_summary"))
     forecast_sources = event.get("forecast_sources") or []
     source_line = ", ".join(str(item) for item in forecast_sources) if forecast_sources else event.get("source", "lịch chính thức")
-    return "\n".join(
-        [
+    actual = event.get("actual_summary")
+    actual_sources = event.get("actual_sources") or []
+    impact = event.get("market_impact") or {}
+    lines = [
             f"{icon}🗓️ <b>R28A THEO DÕI RỦI RO VĨ MÔ — {esc(macro_title_label(event))}</b>",
             "━━━━━━━━━━━━━━━━━━━━━━━━",
             "",
             "📌 Mức ưu tiên: <b>{priority}</b> | Điểm tác động: <code>{score}</code> | Pha: <b>{phase}</b>".format(
                 priority=esc(priority_label(priority)),
                 score=esc(event.get("impact_score", "n/a")),
-                phase=esc(event.get("phase", "n/a")),
+                phase=esc(macro_phase_label(phase)),
             ),
             "👀 <b>CHỈ THEO DÕI | Chưa phải lệnh vào trade</b>",
             "",
@@ -929,9 +1021,49 @@ def format_macro_event_message(event: dict[str, Any]) -> str:
             "• {forecast}".format(forecast=esc(forecast)),
             "• Độ tin cậy: <code>{confidence}</code>".format(confidence=esc(confidence_label(event.get("forecast_confidence", "SCHEDULE_ONLY")))),
             "• Nguồn: <code>{sources}</code>".format(sources=esc(source_line)),
+        ]
+    if phase in {"RESULT", "RESULT_PENDING"}:
+        lines.extend(["", "📣 <b>KẾT QUẢ THỰC TẾ</b>"])
+        if actual:
+            result_source = ", ".join(str(item) for item in actual_sources) or "nguồn xác minh"
+            lines.extend(
+                [
+                    "• {actual}".format(actual=esc(actual_label(actual))),
+                    "• Nguồn: <code>{source}</code>".format(source=esc(result_source)),
+                ]
+            )
+            if event.get("surprise_summary"):
+                lines.append("• {surprise}".format(surprise=esc(actual_label(event.get("surprise_summary")))))
+        else:
+            lines.append("• Chưa có số liệu thực tế từ nguồn xác minh; hệ thống sẽ tiếp tục kiểm tra trong cửa sổ hậu sự kiện.")
+        if impact:
+            assets = impact.get("assets") or {}
+            reactions = []
+            for symbol in ("BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"):
+                if symbol in assets:
+                    reactions.append("{symbol} {value:+.2f}%".format(symbol=symbol.replace("USDT", ""), value=float(assets[symbol].get("return_pct", 0.0))))
+            lines.extend(
+                [
+                    "",
+                    "📊 <b>PHẢN ỨNG CRYPTO SAU SỰ KIỆN</b>",
+                    "• 1h: <b>{direction}</b> | Bình quân: <code>{mean:+.2f}%</code> | Tăng/Giảm: <code>{up}/{down}</code>".format(
+                        direction=esc(impact.get("direction", "n/a")),
+                        mean=float(impact.get("basket_mean_pct", 0.0)),
+                        up=int(impact.get("up_count", 0)),
+                        down=int(impact.get("down_count", 0)),
+                    ),
+                    "• " + esc(" | ".join(reactions) or "Chưa đủ dữ liệu từng coin"),
+                    "• Đo bằng: <code>{source}</code>".format(source=esc(impact.get("source", "n/a"))),
+                    "• Đây là phản ứng quan sát được, không khẳng định quan hệ nhân quả.",
+                ]
+            )
+        else:
+            lines.extend(["", "📊 <b>PHẢN ỨNG CRYPTO SAU SỰ KIỆN</b>", "• Chưa đủ nến 1h đã đóng để đo phản ứng."])
+    lines.extend(
+        [
             "",
             "₿ <b>KỊCH BẢN CRYPTO</b>",
-            "• Dự kiến biến động mở rộng, dễ có fakeout và quét thanh khoản quanh thời điểm công bố.",
+            "• Dễ có biến động mở rộng, fakeout và quét thanh khoản quanh thời điểm công bố.",
             "• Ưu tiên chờ nến đóng / xác nhận thanh khoản trước khi coi nhịp chạy là xu hướng thật.",
             "• Lớp vĩ mô này chỉ tăng mức cảnh giác, không tự tạo điểm vào lệnh.",
             "",
@@ -942,6 +1074,7 @@ def format_macro_event_message(event: dict[str, Any]) -> str:
             clock_line(event.get("notify_time_utc")),
         ]
     )
+    return "\n".join(lines)
 
 
 def safe_bps(value: Any) -> float:

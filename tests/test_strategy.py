@@ -119,6 +119,29 @@ class StrategyTests(unittest.TestCase):
         self.assertEqual(signal["risk_fraction"], 0.25)
         self.assertGreaterEqual(signal["features"]["market_breadth_count"], 2)
 
+    def test_no_signal_exposes_failed_gate_diagnostics(self) -> None:
+        start = 1_699_992_000_000
+        rows_by_symbol = {
+            symbol: trending_rows(start, base=100.0, step=0.0)
+            for symbol in ("BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT")
+        }
+        premium_rows = [premium(start + i * INTERVAL_MS["4h"], 0.0) for i in range(81)]
+        now_ms = start + 80 * INTERVAL_MS["4h"] + 1
+
+        result = evaluate_latest(
+            symbol="BNBUSDT",
+            timeframe="4h",
+            klines=rows_by_symbol["BNBUSDT"],
+            premium_klines=premium_rows,
+            derivatives_state_available=True,
+            market_klines_by_symbol=rows_by_symbol,
+            now_ms=now_ms,
+        )
+
+        self.assertEqual(result["status"], "NO_SIGNAL")
+        self.assertTrue(result["candidate_diagnostics"])
+        self.assertIn("BREADTH_COUNT", result["candidate_diagnostics"][0]["failed_gates"])
+
     def test_candidate_groups_include_r26a_markets(self) -> None:
         groups = candidate_groups()
         for market in R26A_SCAN_MARKETS:

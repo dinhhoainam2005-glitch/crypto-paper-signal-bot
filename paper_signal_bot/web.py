@@ -52,7 +52,7 @@ DEFAULT_MAX_SIGNAL_CHASE_BPS = 40.0
 DEFAULT_MAX_MARKET_PULSE_EVENTS_PER_SCAN = 8
 DEFAULT_MAX_LIQUIDITY_EVENTS_PER_SCAN = 4
 DEFAULT_MAX_MACRO_EVENTS_PER_SCAN = 6
-DEFAULT_MACRO_CALENDAR_CACHE_SECONDS = 3600
+DEFAULT_MACRO_CALENDAR_CACHE_SECONDS = 300
 
 
 def now_ms() -> int:
@@ -211,6 +211,8 @@ def compact_scan(scan_result: dict[str, Any]) -> dict[str, Any]:
                 "flow_thr": features.get("flow_thr"),
                 "quality_realized_vol_24_min": features.get("quality_realized_vol_24_min"),
                 "full_derivatives_state_available": features.get("full_derivatives_state_available"),
+                "failed_gates": features.get("failed_gates", []),
+                "candidate_diagnostics": group.get("candidate_diagnostics", []),
                 "premium_error": group.get("premium_error"),
                 "derivatives_error": group.get("derivatives_error"),
                 "error": group.get("error"),
@@ -430,7 +432,11 @@ class SignalService:
             macro = {"engine_id": MACRO_ID, "events": [], "groups": [], "calendar": [], "source_states": []}
             if self.macro_enabled:
                 try:
-                    macro = evaluate_macro_calendar(self.macro_calendar(scan_started_ms), scan_started_ms)
+                    macro = evaluate_macro_calendar(
+                        self.macro_calendar(scan_started_ms),
+                        scan_started_ms,
+                        market_klines_by_key=klines_cache,
+                    )
                 except Exception as exc:
                     self.store.record_error(f"macro watch: {exc}")
                     macro = {
@@ -796,9 +802,10 @@ class Handler(BaseHTTPRequestHandler):
                             "BEA release schedule",
                             "Census economic indicator calendar",
                             "Cleveland Fed inflation nowcasting",
-                            "Trading Economics consensus forecast when TRADING_ECONOMICS_API_KEY is configured",
+                            "Trading Economics consensus/actual when TRADING_ECONOMICS_API_KEY is configured",
+                            "Binance Futures 1h candles for post-event reaction measurement",
                         ],
-                        "alert_phases": ["T-7D", "T-24H", "T-6H", "T-1H", "T-15M", "LIVE"],
+                        "alert_phases": ["T-7D", "T-24H", "T-6H", "T-1H", "T-15M", "LIVE", "RESULT_PENDING", "RESULT"],
                         "max_events_per_scan": effective_macro_events_per_scan(),
                         "performance_metrics": None,
                     },

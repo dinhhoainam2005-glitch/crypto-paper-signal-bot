@@ -5,8 +5,12 @@ from datetime import datetime, timezone
 
 from paper_signal_bot.macro_events import (
     MACRO_ID,
+    MacroScheduledEvent,
     add_inflation_nowcast,
+    alert_phase,
     evaluate_macro_calendar,
+    market_impact_for_event,
+    link_fomc_outcomes,
     parse_bls_ics,
     parse_fomc_schedule,
 )
@@ -41,6 +45,86 @@ FOMC_SAMPLE = """
 
 
 class MacroEventTests(unittest.TestCase):
+    def test_fomc_press_conference_receives_linked_rate_decision_result(self) -> None:
+        decision = MacroScheduledEvent(
+            title="FOMC Rate Decision",
+            category="FOMC_RATE_DECISION",
+            priority="CRITICAL",
+            impact_score=100,
+            event_time_utc="2026-09-16T18:00:00+00:00",
+            source="Trading Economics",
+            source_url="https://example.test",
+            rationale="Fed decision",
+            actual_summary="Actual 3.75% | Consensus 4.00%",
+            actual_sources=("Trading Economics",),
+            surprise_summary="Chênh lệch actual - consensus: -0.25",
+        )
+        press = MacroScheduledEvent(
+            title="FOMC Press Conference",
+            category="FOMC_PRESS_CONFERENCE",
+            priority="CRITICAL",
+            impact_score=96,
+            event_time_utc="2026-09-16T18:30:00+00:00",
+            source="Federal Reserve",
+            source_url="https://example.test",
+            rationale="Fed guidance",
+        )
+
+        linked = link_fomc_outcomes([decision, press])
+
+        self.assertIn("Rate decision context", linked[1].actual_summary)
+        self.assertEqual(linked[1].actual_sources, ("Trading Economics",))
+
+    def test_past_event_is_result_pending_instead_of_disappearing(self) -> None:
+        event_time = datetime(2026, 9, 10, 12, 30, tzinfo=timezone.utc)
+        phase, minutes = alert_phase(event_time, datetime(2026, 9, 10, 13, 0, tzinfo=timezone.utc))
+
+        self.assertEqual(phase, "RESULT_PENDING")
+        self.assertEqual(minutes, -30.0)
+
+    def test_result_event_contains_actual_and_observed_crypto_reaction(self) -> None:
+        event_time = "2026-09-10T12:30:00+00:00"
+        event_ms = ms(event_time)
+        rows_by_key = {}
+        for symbol in ("BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"):
+            rows_by_key[(symbol, "1h")] = [
+                [event_ms - 3_600_000, 100, 100, 100, 100, 100, event_ms - 1_800_000],
+                [event_ms + 1_800_000, 100, 101, 100, 101, 100, event_ms + 5_400_000],
+            ]
+        payload = {
+            "calendar": [
+                {
+                    "title": "Consumer Price Index",
+                    "category": "CPI_INFLATION",
+                    "priority": "CRITICAL",
+                    "impact_score": 95,
+                    "event_time_utc": event_time,
+                    "source": "Trading Economics",
+                    "source_url": "https://example.test",
+                    "rationale": "Inflation risk",
+                    "reference": "August 2026",
+                    "forecast_summary": "Consensus 0.30%",
+                    "forecast_sources": ["Trading Economics"],
+                    "forecast_confidence": "CONSENSUS",
+                    "actual_summary": "Actual 0.40% | Consensus 0.30% | Previous 0.20%",
+                    "actual_sources": ["Trading Economics"],
+                    "surprise_summary": "Chênh lệch actual - consensus: +0.1",
+                }
+            ],
+            "source_states": [{"source": "Trading Economics", "status": "OK"}],
+        }
+        result = evaluate_macro_calendar(payload, ms("2026-09-10T13:35:00+00:00"), rows_by_key)
+
+        alert = result["events"][0]
+        self.assertEqual(alert["phase"], "RESULT")
+        self.assertEqual(alert["result_status"], "AVAILABLE")
+        self.assertEqual(alert["market_impact"]["direction"], "TĂNG")
+        self.assertEqual(alert["market_impact"]["up_count"], 4)
+        text = format_macro_event_message(alert)
+        self.assertIn("KẾT QUẢ THỰC TẾ", text)
+        self.assertIn("PHẢN ỨNG CRYPTO SAU SỰ KIỆN", text)
+        self.assertIn("Thực tế 0.40%", text)
+
     def test_bls_cpi_event_enriches_with_inflation_nowcast_and_alerts_t24h(self) -> None:
         events = parse_bls_ics(BLS_SAMPLE)
         cpi_events = [event for event in events if event.category == "CPI_INFLATION"]

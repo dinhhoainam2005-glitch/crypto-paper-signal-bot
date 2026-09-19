@@ -19,6 +19,8 @@ EASTERN = ZoneInfo("America/New_York")
 LOOKAHEAD_DAYS = int(os.getenv("MACRO_LOOKAHEAD_DAYS", "45"))
 LOOKBACK_MINUTES = int(os.getenv("MACRO_LOOKBACK_MINUTES", "90"))
 ALERT_RETRY_MINUTES = int(os.getenv("MACRO_ALERT_RETRY_MINUTES", "90"))
+TRADING_ECONOMICS_CACHE_SECONDS = int(os.getenv("TRADING_ECONOMICS_CACHE_SECONDS", "86400"))
+TRADING_ECONOMICS_EVENT_REFRESH_SECONDS = int(os.getenv("TRADING_ECONOMICS_EVENT_REFRESH_SECONDS", "3600"))
 ALERT_PHASES = (
     (7 * 24 * 60, "T-7D"),
     (24 * 60, "T-24H"),
@@ -26,6 +28,9 @@ ALERT_PHASES = (
     (60, "T-1H"),
     (15, "T-15M"),
 )
+
+
+_trading_economics_cache: tuple[datetime, list[MacroScheduledEvent], dict[str, Any]] | None = None
 
 
 SOURCE_URLS = {
@@ -68,6 +73,9 @@ class MacroScheduledEvent:
     forecast_summary: str | None = None
     forecast_sources: tuple[str, ...] = ()
     forecast_confidence: str = "SCHEDULE_ONLY"
+    actual_summary: str | None = None
+    actual_sources: tuple[str, ...] = ()
+    surprise_summary: str | None = None
 
 
 class TableCollector(HTMLParser):
@@ -123,6 +131,27 @@ class TableCollector(HTMLParser):
 def clean_text(value: Any) -> str:
     text = html.unescape("" if value is None else str(value))
     return " ".join(text.replace("\xa0", " ").split())
+
+
+def numeric_value(value: Any) -> float | None:
+    """Extract a simple numeric value for a neutral actual-vs-consensus comparison."""
+    text = clean_text(value).replace(",", "")
+    match = re.search(r"[-+]?\d+(?:\.\d+)?", text)
+    if not match:
+        return None
+    try:
+        return float(match.group(0))
+    except ValueError:
+        return None
+
+
+def surprise_summary(actual: Any, forecast: Any) -> str | None:
+    actual_number = numeric_value(actual)
+    forecast_number = numeric_value(forecast)
+    if actual_number is None or forecast_number is None:
+        return None
+    delta = actual_number - forecast_number
+    return f"Chênh lệch actual - consensus: {delta:+.4g}"
 
 
 def now_ms() -> int:
@@ -440,7 +469,7 @@ def fetch_trading_economics(now: datetime, lookahead_days: int) -> tuple[list[Ma
     key = os.getenv("TRADING_ECONOMICS_API_KEY", "").strip()
     if not key:
         return [], {"source": "Trading Economics", "status": "DISABLED", "events": 0, "url": SOURCE_URLS["trading_economics"]}
-    start = now.date().isoformat()
+    start = (now - timedelta(minutes=LOOKBACK_MINUTES)).date().isoformat()
     end = (now + timedelta(days=lookahead_days)).date().isoformat()
     encoded_country = urllib.parse.quote("united states")
     url = f"https://api.tradingeconomics.com/calendar/country/{encoded_country}/{start}/{end}?c={urllib.parse.quote(key)}&importance=3&values=true&f=json"
@@ -470,17 +499,40 @@ def fetch_trading_economics(now: datetime, lookahead_days: int) -> tuple[list[Ma
             forecast_bits.append(f"TE forecast {row.get('TEForecast')}")
         if row.get("Previous"):
             forecast_bits.append(f"Previous {row.get('Previous')}")
+        actual = row.get("Actual")
+        actual_bits = []
+        if actual not in (None, ""):
+            actual_bits.append(f"Actual {actual}")
+        if row.get("Forecast") not in (None, ""):
+            actual_bits.append(f"Consensus {row.get('Forecast')}")
+        if row.get("Previous") not in (None, ""):
+            actual_bits.append(f"Previous {row.get('Previous')}")
         events.append(
             MacroScheduledEvent(
                 **{
                     **event.__dict__,
                     "forecast_summary": " | ".join(forecast_bits) if forecast_bits else None,
-                    "forecast_sources": ("Trading Economics",),
+                    "forecast_sources": ("Trading Economics",) if forecast_bits else (),
                     "forecast_confidence": "CONSENSUS" if row.get("Forecast") else "MODEL_OR_PREVIOUS",
+                    "actual_summary": " | ".join(actual_bits) if actual_bits else None,
+                    "actual_sources": ("Trading Economics",) if actual_bits else (),
+                    "surprise_summary": surprise_summary(actual, row.get("Forecast")),
                 }
             )
         )
     return events, {"source": "Trading Economics", "status": "OK", "events": len(events), "url": SOURCE_URLS["trading_economics"]}
+
+
+def trading_economics_refresh_due(now: datetime, scheduled_events: list[MacroScheduledEvent]) -> bool:
+    if _trading_economics_cache is None:
+        return True
+    cached_at, _, _ = _trading_economics_cache
+    event_window = any(
+        -LOOKBACK_MINUTES <= (parse_iso(event.event_time_utc) - now).total_seconds() / 60.0 <= 120
+        for event in scheduled_events
+    )
+    ttl = TRADING_ECONOMICS_EVENT_REFRESH_SECONDS if event_window else TRADING_ECONOMICS_CACHE_SECONDS
+    return (now - cached_at).total_seconds() >= ttl
 
 
 def extract_reference(title: str) -> str | None:
@@ -536,10 +588,56 @@ def dedupe_calendar(events: list[MacroScheduledEvent]) -> list[MacroScheduledEve
         key = (event.category, event.event_time_utc)
         existing = merged.get(key)
         if not existing or event.forecast_confidence != "SCHEDULE_ONLY":
-            if existing and not event.forecast_summary and existing.forecast_summary:
-                event = MacroScheduledEvent(**{**event.__dict__, "forecast_summary": existing.forecast_summary, "forecast_sources": existing.forecast_sources, "forecast_confidence": existing.forecast_confidence})
+            if existing:
+                merged_fields = dict(event.__dict__)
+                if not merged_fields.get("forecast_summary") and existing.forecast_summary:
+                    merged_fields.update(
+                        forecast_summary=existing.forecast_summary,
+                        forecast_sources=existing.forecast_sources,
+                        forecast_confidence=existing.forecast_confidence,
+                    )
+                if not merged_fields.get("actual_summary") and existing.actual_summary:
+                    merged_fields.update(
+                        actual_summary=existing.actual_summary,
+                        actual_sources=existing.actual_sources,
+                        surprise_summary=existing.surprise_summary,
+                    )
+                event = MacroScheduledEvent(**merged_fields)
             merged[key] = event
     return sorted(merged.values(), key=lambda item: (item.event_time_utc, -item.impact_score, item.title))
+
+
+def link_fomc_outcomes(events: list[MacroScheduledEvent]) -> list[MacroScheduledEvent]:
+    """Carry the numeric rate-decision outcome into the related press-conference alert."""
+    decisions = {
+        event.event_time_utc: event
+        for event in events
+        if event.category == "FOMC_RATE_DECISION"
+    }
+    linked: list[MacroScheduledEvent] = []
+    for event in events:
+        if event.category != "FOMC_PRESS_CONFERENCE" or event.actual_summary:
+            linked.append(event)
+            continue
+        decision_time = (parse_iso(event.event_time_utc) - timedelta(minutes=30)).isoformat()
+        decision = decisions.get(decision_time)
+        if decision is None or not decision.actual_summary:
+            linked.append(event)
+            continue
+        linked.append(
+            MacroScheduledEvent(
+                **{
+                    **event.__dict__,
+                    "forecast_summary": event.forecast_summary or decision.forecast_summary,
+                    "forecast_sources": event.forecast_sources or decision.forecast_sources,
+                    "forecast_confidence": event.forecast_confidence if event.forecast_summary else decision.forecast_confidence,
+                    "actual_summary": f"Rate decision context: {decision.actual_summary}",
+                    "actual_sources": decision.actual_sources,
+                    "surprise_summary": decision.surprise_summary,
+                }
+            )
+        )
+    return linked
 
 
 def fetch_macro_calendar(now_ms_value: int | None = None) -> dict[str, Any]:
@@ -565,15 +663,25 @@ def fetch_macro_calendar(now_ms_value: int | None = None) -> dict[str, Any]:
         source_states.append({"source": "Cleveland Fed Inflation Nowcasting", "status": "OK", "events": len(forecast_state.get("monthly", [])), "url": SOURCE_URLS["cleveland_nowcast"]})
     except Exception as exc:
         source_states.append({"source": "Cleveland Fed Inflation Nowcasting", "status": "ERROR", "events": 0, "url": SOURCE_URLS["cleveland_nowcast"], "error": type(exc).__name__})
+    global _trading_economics_cache
     try:
-        te_events, te_state = fetch_trading_economics(current, LOOKAHEAD_DAYS)
+        if trading_economics_refresh_due(current, events):
+            te_events, te_state = fetch_trading_economics(current, LOOKAHEAD_DAYS)
+            _trading_economics_cache = (current, te_events, te_state)
+        else:
+            cached_at, te_events, cached_state = _trading_economics_cache
+            te_state = {
+                **cached_state,
+                "status": "CACHED",
+                "cache_age_seconds": round((current - cached_at).total_seconds()),
+            }
         events.extend(te_events)
         source_states.append(te_state)
     except Exception as exc:
         source_states.append({"source": "Trading Economics", "status": "ERROR", "events": 0, "url": SOURCE_URLS["trading_economics"], "error": type(exc).__name__})
     start = current - timedelta(minutes=LOOKBACK_MINUTES)
     end = current + timedelta(days=LOOKAHEAD_DAYS)
-    filtered = [event for event in dedupe_calendar(events) if start <= parse_iso(event.event_time_utc) <= end]
+    filtered = [event for event in link_fomc_outcomes(dedupe_calendar(events)) if start <= parse_iso(event.event_time_utc) <= end]
     return {
         "engine_id": MACRO_ID,
         "calendar": [event.__dict__ for event in filtered],
@@ -583,12 +691,19 @@ def fetch_macro_calendar(now_ms_value: int | None = None) -> dict[str, Any]:
     }
 
 
-def alert_phase(event_time: datetime, current: datetime) -> tuple[str, float] | None:
+def alert_phase(
+    event_time: datetime,
+    current: datetime,
+    *,
+    actual_available: bool = False,
+) -> tuple[str, float] | None:
     minutes_until = (event_time - current).total_seconds() / 60.0
-    if -LOOKBACK_MINUTES <= minutes_until <= 2:
-        return "LIVE", minutes_until
     if minutes_until < 0:
+        if minutes_until >= -LOOKBACK_MINUTES:
+            return ("RESULT" if actual_available else "RESULT_PENDING"), minutes_until
         return None
+    if minutes_until <= 2:
+        return "LIVE", minutes_until
     for index, (threshold, phase) in enumerate(ALERT_PHASES):
         next_threshold = ALERT_PHASES[index + 1][0] if index + 1 < len(ALERT_PHASES) else 0
         if next_threshold < minutes_until <= threshold:
@@ -608,13 +723,82 @@ def event_key(item: dict[str, Any]) -> str:
     return hashlib.sha1(raw.encode("utf-8")).hexdigest()[:16]
 
 
-def evaluate_macro_calendar(calendar_payload: dict[str, Any], now_ms_value: int | None = None) -> dict[str, Any]:
+def market_impact_for_event(
+    event_time_ms: int,
+    market_klines_by_key: dict[tuple[str, str], list[list[Any]]] | None,
+    *,
+    horizon_minutes: int = 60,
+) -> dict[str, Any] | None:
+    """Measure the observed 1h crypto reaction; it is descriptive, not causal."""
+    if not market_klines_by_key:
+        return None
+    assets: dict[str, dict[str, Any]] = {}
+    post_target_ms = event_time_ms + horizon_minutes * 60 * 1000
+    for symbol in ("BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"):
+        rows = market_klines_by_key.get((symbol, "1h"), [])
+        eligible_before = []
+        eligible_after = []
+        for row in rows:
+            if len(row) < 7:
+                continue
+            try:
+                close_time_ms = int(row[6])
+                close_price = float(row[4])
+            except (TypeError, ValueError):
+                continue
+            if close_price <= 0:
+                continue
+            if close_time_ms <= event_time_ms:
+                eligible_before.append((close_time_ms, close_price))
+            if close_time_ms >= post_target_ms:
+                eligible_after.append((close_time_ms, close_price))
+        if not eligible_before or not eligible_after:
+            continue
+        before_time, before_price = max(eligible_before)
+        after_time, after_price = min(eligible_after)
+        return_pct = (after_price / before_price - 1.0) * 100.0
+        assets[symbol] = {
+            "return_pct": round(return_pct, 4),
+            "before_price": round(before_price, 8),
+            "after_price": round(after_price, 8),
+            "before_time_utc": ms_to_iso(before_time),
+            "after_time_utc": ms_to_iso(after_time),
+        }
+    if not assets:
+        return None
+    returns = [float(item["return_pct"]) for item in assets.values()]
+    mean_return = sum(returns) / len(returns)
+    if mean_return >= 0.20:
+        direction = "TĂNG"
+    elif mean_return <= -0.20:
+        direction = "GIẢM"
+    else:
+        direction = "TRUNG TÍNH"
+    return {
+        "source": "Binance Futures nến 1h",
+        "horizon": "1h sau sự kiện",
+        "direction": direction,
+        "basket_mean_pct": round(mean_return, 4),
+        "up_count": sum(value >= 0 for value in returns),
+        "down_count": sum(value < 0 for value in returns),
+        "assets": assets,
+        "note": "Phản ứng quan sát được sau sự kiện; không khẳng định quan hệ nhân quả.",
+    }
+
+
+def evaluate_macro_calendar(
+    calendar_payload: dict[str, Any],
+    now_ms_value: int | None = None,
+    market_klines_by_key: dict[tuple[str, str], list[list[Any]]] | None = None,
+) -> dict[str, Any]:
     current_ms = now_ms_value or now_ms()
     current = datetime.fromtimestamp(current_ms / 1000, tz=timezone.utc)
     calendar = calendar_payload.get("calendar", [])
     alerts: list[dict[str, Any]] = []
     next_event = None
     upcoming_count = 0
+    result_available_count = 0
+    result_pending_count = 0
     for item in calendar:
         event_time = parse_iso(item["event_time_utc"])
         minutes_until = (event_time - current).total_seconds() / 60.0
@@ -622,10 +806,21 @@ def evaluate_macro_calendar(calendar_payload: dict[str, Any], now_ms_value: int 
             upcoming_count += 1
             if next_event is None or event_time < parse_iso(next_event["event_time_utc"]):
                 next_event = item
-        phase = alert_phase(event_time, current)
+        actual_summary = item.get("actual_summary")
+        phase = alert_phase(event_time, current, actual_available=bool(actual_summary))
         if phase is None:
             continue
         phase_name, phase_minutes = phase
+        if phase_name == "RESULT":
+            result_available_count += 1
+        elif phase_name == "RESULT_PENDING":
+            result_pending_count += 1
+        market_impact = None
+        if phase_name in {"RESULT", "RESULT_PENDING"}:
+            market_impact = market_impact_for_event(
+                int(event_time.timestamp() * 1000),
+                market_klines_by_key,
+            )
         alert = {
             "event_id": f"{MACRO_ID}:{event_key(item)}:{phase_name}",
             "event_type": "MACRO_EVENT",
@@ -642,6 +837,11 @@ def evaluate_macro_calendar(calendar_payload: dict[str, Any], now_ms_value: int 
             "forecast_summary": item.get("forecast_summary"),
             "forecast_sources": item.get("forecast_sources") or [],
             "forecast_confidence": item.get("forecast_confidence") or "SCHEDULE_ONLY",
+            "actual_summary": actual_summary,
+            "actual_sources": item.get("actual_sources") or [],
+            "surprise_summary": item.get("surprise_summary"),
+            "result_status": "AVAILABLE" if actual_summary else "PENDING_SOURCE",
+            "market_impact": market_impact,
             "event_time_utc": item["event_time_utc"],
             "event_time_ms": int(event_time.timestamp() * 1000),
             "minutes_until": round(phase_minutes, 1),
@@ -660,6 +860,8 @@ def evaluate_macro_calendar(calendar_payload: dict[str, Any], now_ms_value: int 
         "data_state": "FRESH" if any(s.get("status") == "OK" for s in calendar_payload.get("source_states", [])) else "DEGRADED",
         "candidate_count": len(calendar),
         "upcoming_count": upcoming_count,
+        "result_available_count": result_available_count,
+        "result_pending_count": result_pending_count,
         "alert_count": len(alerts),
         "next_event": next_event,
         "source_states": calendar_payload.get("source_states", []),

@@ -49,15 +49,21 @@ services:
       - key: MACRO_EVENT_WATCH_ENABLED
         value: "true"
       - key: MACRO_CALENDAR_CACHE_SECONDS
-        value: "3600"
+        value: "300"
       - key: MACRO_LOOKAHEAD_DAYS
         value: "45"
       - key: MACRO_LOOKBACK_MINUTES
-        value: "90"
+        value: "120"
       - key: MAX_MACRO_EVENTS_PER_SCAN
         value: "6"
       - key: MACRO_ALERT_RETRY_MINUTES
         value: "90"
+      - key: TRADING_ECONOMICS_CACHE_SECONDS
+        value: "86400"
+      - key: TRADING_ECONOMICS_EVENT_REFRESH_SECONDS
+        value: "3600"
+      - key: TRADING_ECONOMICS_API_KEY
+        sync: false
       - key: TELEGRAM_ENABLED
         value: "true"
       - key: TELEGRAM_STARTUP_ENABLED
