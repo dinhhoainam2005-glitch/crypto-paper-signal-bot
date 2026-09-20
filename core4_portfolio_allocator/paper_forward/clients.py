@@ -50,6 +50,7 @@ class BinanceClient:
             "https://fapi2.binance.com",
             "https://fapi3.binance.com",
             "https://fapi4.binance.com",
+            "https://www.binance.com",
         )
         self.base_urls = tuple(
             dict.fromkeys(

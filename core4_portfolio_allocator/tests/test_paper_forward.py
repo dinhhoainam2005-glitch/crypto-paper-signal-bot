@@ -377,6 +377,10 @@ class PaperForwardTests(unittest.TestCase):
                 )
 
             self.assertIn("rejected source", client.stream_error or "")
+            with self.assertRaisesRegex(RuntimeError, "repair=.*rejected source"):
+                client.minute_candles_with_source(
+                    "SOLUSDT", current_open, current_open + 60_000 - 1, 10
+                )
 
     def test_status_messages_show_open_position_and_breakout_proximity(self) -> None:
         position = {

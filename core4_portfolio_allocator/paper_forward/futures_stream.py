@@ -179,7 +179,7 @@ class BinanceVisionDailyArchive:
 
 
 class BinanceFuturesStreamClient:
-    data_transport = "BINANCE_VISION_ARCHIVE_PLUS_FSTREAM_WEBSOCKET"
+    data_transport = "BINANCE_VISION_ARCHIVE_PLUS_FSTREAM_WEBSOCKET_PLUS_FAPI_REPAIR"
 
     def __init__(
         self,
@@ -561,8 +561,10 @@ class BinanceFuturesStreamClient:
                     if timestamp in self.minute_stream[symbol]
                 ]
         if len(candles) != expected:
+            detail = f"; repair={self.stream_error}" if self.stream_error else ""
             raise RuntimeError(
-                f"futures minute stream gap for {symbol}: {len(candles)}/{expected}"
+                f"futures minute stream gap for {symbol}: "
+                f"{len(candles)}/{expected}{detail}"
             )
         return candles, SOURCE_USDM_FUTURES
 
