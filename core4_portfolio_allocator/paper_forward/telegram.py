@@ -44,6 +44,7 @@ def source_summary(scan: dict[str, Any]) -> tuple[int, int]:
 def format_startup(scan: dict[str, Any]) -> str:
     ready = sum(group.get("status") == "READY" for group in scan.get("groups", []))
     trusted, fallback = source_summary(scan)
+    active = scan.get("state", {}).get("active_positions", [])
     lines = [
             "💎📡 <b>CORE4 V7 PAPER-FORWARD ĐÃ KHỞI ĐỘNG</b>",
             "━━━━━━━━━━━━━━━━━━━━━━━━",
@@ -54,15 +55,29 @@ def format_startup(scan: dict[str, Any]) -> str:
             "💎 Phân tầng: <b>V7 STANDARD</b> | <b>A+ khi ≥2 coin cùng kỳ xác nhận</b>",
             "🧭 MTF 1h/4h: <b>CHỈ BỐI CẢNH / KHÔNG TỰ SINH LỆNH</b>",
             f"🧾 Nguồn Binance Futures xác minh: <b>{trusted}/4</b>",
+            f"📂 Vị thế đang mở: <b>{len(active)}</b>",
+    ]
+    for position in active[:3]:
+        lines.append(
+            "• {symbol} <b>{side}</b> @ <code>{entry}</code> | SL <code>{stop}</code> | {status}".format(
+                symbol=esc(position["symbol"]),
+                side=esc(position["side"]),
+                entry=price(position["entry"]),
+                stop=price(position["current_stop"]),
+                status=esc(position.get("status", "OPEN")),
+            ),
+        )
+    if fallback:
+        lines.append(
+            f"⚠️ Spot fallback: <b>{fallback}/4</b> | Tín hiệu Trade bị khóa để bảo toàn chất lượng"
+        )
+    lines.extend(
+        [
             "🧪 Trạng thái: <b>PAPER-FORWARD / KHÔNG ĐẶT LỆNH</b>",
             "🔐 Cấu hình V7 đã khóa SHA-256; bot R26A cũ hoạt động độc lập.",
             f"🕒 {esc(display_time(scan['time_utc']))}",
-    ]
-    if fallback:
-        lines.insert(
-            -3,
-            f"⚠️ Spot fallback: <b>{fallback}/4</b> | Tín hiệu Trade bị khóa để bảo toàn chất lượng",
-        )
+        ]
+    )
     return "\n".join(lines)
 
 
@@ -212,14 +227,52 @@ def format_heartbeat(scan: dict[str, Any], state: dict[str, Any]) -> str:
             f"💎 A+ chéo: mở <b>{aplus_open}</b> | đóng <b>{aplus_count}</b> | Win <code>{aplus_win:.1%}</code> | PF <code>{aplus_pf_label}</code>",
             f"📘 Standard: mở <b>{standard_open}</b> | đóng <b>{standard_count}</b> | Win <code>{standard_win:.1%}</code> | PF <code>{standard_pf_label}</code>",
             f"💰 Equity paper: <code>{float(state.get('equity', 1.0)):.4f}</code>",
+    ]
+    for position in active[:3]:
+        lines.append(
+            "📌 {symbol} <b>{side}</b> @ <code>{entry}</code> | SL <code>{stop}</code> | {status}".format(
+                symbol=esc(position["symbol"]),
+                side=esc(position["side"]),
+                entry=price(position["entry"]),
+                stop=price(position["current_stop"]),
+                status=esc(position.get("status", "OPEN")),
+            )
+        )
+    diagnostics = [
+        group
+        for group in scan.get("groups", [])
+        if group.get("distance_to_long_breakout_pct") is not None
+    ]
+    if diagnostics:
+        nearest = min(
+            diagnostics,
+            key=lambda group: abs(float(group["distance_to_long_breakout_pct"])),
+        )
+        distance = float(nearest["distance_to_long_breakout_pct"])
+        if distance > 0.0:
+            proximity = f"còn {distance:.2f}%"
+        else:
+            proximity = "đang vượt ngưỡng, chờ đóng nến 1D"
+        lines.append(
+            "🎯 Gần LONG nhất: <b>{symbol}</b> {proximity} tới <code>{trigger}</code>".format(
+                symbol=esc(nearest["symbol"].replace("USDT", "")),
+                proximity=esc(proximity),
+                trigger=price(nearest["long_breakout_trigger"]),
+            )
+        )
+    lines.extend(
+        [
             f"🧾 Nguồn Futures xác minh: <b>{trusted}/4</b> | Spot fallback: <b>{fallback}/4</b>",
             "🎯 1D LONG + SHORT | BTC / ETH / SOL / BNB",
             "🧭 MTF 1h/4h: BỐI CẢNH | KHÔNG TỰ SINH LỆNH",
             "🔒 <b>PAPER ONLY / KHÔNG TỰ ĐẶT LỆNH</b>",
             f"🕒 {esc(display_time(scan['time_utc']))}",
-    ]
+        ]
+    )
     if fallback:
         lines.insert(-3, "⚠️ <b>TRADE BỊ KHÓA KHI NGUỒN FUTURES CHƯA ĐẠT</b>")
+    if scan.get("status") != "OK" and scan.get("errors"):
+        lines.insert(-3, f"⚠️ Dữ liệu: <code>{esc(str(scan['errors'][0])[:140])}</code>")
     return "\n".join(lines)
 
 

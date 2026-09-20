@@ -7,6 +7,7 @@ import time
 import unittest
 import urllib.error
 import zipfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 
@@ -39,7 +40,11 @@ from core4_portfolio_allocator.paper_forward.futures_stream import (
     parse_archive_zip,
 )
 from core4_portfolio_allocator.paper_forward.state import ForwardStore
-from core4_portfolio_allocator.paper_forward.telegram import format_signal
+from core4_portfolio_allocator.paper_forward.telegram import (
+    format_heartbeat,
+    format_signal,
+    format_startup,
+)
 
 
 def daily_series(side: str = "LONG") -> dict[str, list[Candle]]:
@@ -247,6 +252,101 @@ class PaperForwardTests(unittest.TestCase):
             self.assertIn("btcusdt@kline_1m", url)
             self.assertIn("btcusdt@markPrice@1s", url)
 
+    def test_futures_stream_backfills_completed_minute_gap_from_verified_archive(self) -> None:
+        yesterday = (datetime.now(timezone.utc) - timedelta(days=1)).date()
+        start = int(
+            datetime(
+                yesterday.year,
+                yesterday.month,
+                yesterday.day,
+                tzinfo=timezone.utc,
+            ).timestamp()
+            * 1000
+        )
+        buffer = io.BytesIO()
+        with zipfile.ZipFile(buffer, "w") as archive:
+            rows = ["open_time,open,high,low,close,volume,close_time"]
+            for offset in range(3):
+                opened = start + offset * 60_000
+                rows.append(
+                    f"{opened},100,102,99,101,1,{opened + 59_999}"
+                )
+            archive.writestr("SOLUSDT-1m.csv", "\n".join(rows))
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            client = BinanceFuturesStreamClient(
+                root / "stream.json",
+                root / "archive",
+                symbols=("SOLUSDT",),
+                start_stream=False,
+            )
+            requested: list[str] = []
+
+            def verified_zip(url: str) -> bytes:
+                requested.append(url)
+                return buffer.getvalue()
+
+            client.archive._verified_zip = verified_zip  # type: ignore[method-assign]
+            minutes, source = client.minute_candles_with_source(
+                "SOLUSDT", start, start + 3 * 60_000 - 1, 10
+            )
+
+            self.assertEqual(source, "BINANCE_USDM_FUTURES")
+            self.assertEqual(len(minutes), 3)
+            self.assertEqual(
+                [candle.open_time_ms for candle in minutes],
+                [start, start + 60_000, start + 120_000],
+            )
+            self.assertEqual(len(requested), 1)
+            self.assertIn(f"SOLUSDT-1m-{yesterday:%Y-%m-%d}.zip", requested[0])
+
+    def test_status_messages_show_open_position_and_breakout_proximity(self) -> None:
+        position = {
+            "symbol": "SOLUSDT",
+            "side": "LONG",
+            "entry": 112.73,
+            "current_stop": 102.887,
+            "status": "OPEN",
+            "quality_tier": "STANDARD",
+        }
+        scan = {
+            "status": "OK",
+            "time_utc": "2026-09-20T08:00:00+00:00",
+            "groups": [
+                {
+                    "symbol": "BTCUSDT",
+                    "status": "READY",
+                    "source_trusted": True,
+                    "distance_to_long_breakout_pct": 2.35,
+                    "long_breakout_trigger": 82_282.8,
+                },
+                *[
+                    {
+                        "symbol": symbol,
+                        "status": "READY",
+                        "source_trusted": True,
+                    }
+                    for symbol in ("ETHUSDT", "SOLUSDT", "BNBUSDT")
+                ],
+            ],
+            "state": {"active_positions": [position]},
+        }
+        state = {
+            "active_positions": [position],
+            "closed_trades": [],
+            "equity": 1.0,
+        }
+
+        startup = format_startup(scan)
+        heartbeat = format_heartbeat(scan, state)
+
+        self.assertIn("SOLUSDT", startup)
+        self.assertIn("Vị thế đang mở: <b>1</b>", startup)
+        self.assertIn("SOLUSDT", heartbeat)
+        self.assertIn("còn 2.35%", heartbeat)
+        self.assertIn("82,282.80", heartbeat)
+
     def test_daily_candles_fall_back_to_public_spot_market_data(self) -> None:
         client = SpotFallbackClient()
         candles, source = client.daily_candles_with_source("BTCUSDT", limit=1)
@@ -315,9 +415,18 @@ class PaperForwardTests(unittest.TestCase):
             self.assertLessEqual(gross, 0.60 + 1e-12)
 
             restarted = ForwardEngine(client=FakeClient(markets), store=store, config=config)
+            state = store.load()
+            state["active_positions"][0]["status"] = "DATA_GAP"
+            store.save(state)
             third = restarted.scan(now_ms)
             self.assertEqual(len(third["state"]["signals"]), 4)
             self.assertEqual(len(third["state"]["active_positions"]), 4)
+            self.assertTrue(
+                all(
+                    position["status"] == "OPEN"
+                    for position in third["state"]["active_positions"]
+                )
+            )
 
     def test_engine_suppresses_stale_entry(self) -> None:
         markets = daily_series("LONG")

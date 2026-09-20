@@ -520,6 +520,26 @@ class ForwardEngine:
                             "source_trusted": source_trusted,
                         }
                     )
+                    if len(completed) >= ENTRY_CHANNEL and current is not None:
+                        signal_window = completed[-ENTRY_CHANNEL:]
+                        long_trigger = max(candle.high for candle in signal_window)
+                        short_trigger = min(candle.low for candle in signal_window)
+                        groups[-1].update(
+                            current_price=current.close,
+                            latest_daily_close=completed[-1].close,
+                            long_breakout_trigger=long_trigger,
+                            short_breakout_trigger=short_trigger,
+                            distance_to_long_breakout_pct=(
+                                (long_trigger / current.close - 1.0) * 100.0
+                                if current.close > 0.0
+                                else None
+                            ),
+                            distance_to_short_breakout_pct=(
+                                (current.close / short_trigger - 1.0) * 100.0
+                                if short_trigger > 0.0
+                                else None
+                            ),
+                        )
                 except Exception as exc:
                     errors.append(f"{symbol} daily: {type(exc).__name__}: {exc}")
                     groups.append({"symbol": symbol, "status": "ERROR", "completed_bars": 0})
@@ -563,6 +583,7 @@ class ForwardEngine:
                     )
                     notifications.extend(events)
                     if trade is None:
+                        position["status"] = "OPEN"
                         active_after_replay.append(position)
                     else:
                         notifications.append({"event_id": f"{position['signal_id']}:CLOSED", "reason": "TRADE_CLOSED", "trade": trade})

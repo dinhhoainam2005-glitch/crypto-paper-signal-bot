@@ -22,6 +22,7 @@ MINUTE_MS = 60_000
 ARCHIVE_BASE = "https://data.binance.vision/data/futures/um"
 STREAM_BASE = "wss://fstream.binance.com/market/stream?streams="
 DEFAULT_SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT")
+MINUTE_ARCHIVE_RETRY_SECONDS = 900.0
 
 
 def normalize_epoch_ms(value: Any) -> int:
@@ -201,6 +202,7 @@ class BinanceFuturesStreamClient:
             symbol: {} for symbol in self.symbols
         }
         self.last_mark: dict[str, dict[str, Any]] = {}
+        self.minute_archive_attempts: dict[tuple[str, str], float] = {}
         self.last_event_ms: int | None = None
         self.last_persist_monotonic = 0.0
         self.stream_state = "STARTING" if start_stream else "DISABLED_FOR_TEST"
@@ -422,6 +424,55 @@ class BinanceFuturesStreamClient:
         candles, _ = self.daily_candles_with_source(symbol, limit)
         return candles
 
+    def _backfill_completed_minute_archives(
+        self, symbol: str, start_ms: int, end_ms: int
+    ) -> int:
+        first_day = datetime.fromtimestamp(start_ms / 1000, tz=timezone.utc).date()
+        last_day = datetime.fromtimestamp(end_ms / 1000, tz=timezone.utc).date()
+        today = datetime.now(timezone.utc).date()
+        day = first_day
+        added = 0
+        while day <= last_day and day < today:
+            key = (symbol, day.isoformat())
+            attempted_at = self.minute_archive_attempts.get(key)
+            now_monotonic = time.monotonic()
+            if (
+                attempted_at is not None
+                and now_monotonic - attempted_at < MINUTE_ARCHIVE_RETRY_SECONDS
+            ):
+                day += timedelta(days=1)
+                continue
+            self.minute_archive_attempts[key] = now_monotonic
+            url = (
+                f"{ARCHIVE_BASE}/daily/klines/{symbol}/1m/"
+                f"{symbol}-1m-{day:%Y-%m-%d}.zip"
+            )
+            try:
+                payload = self.archive._verified_zip(url)
+                archived = parse_archive_zip(payload)
+            except urllib.error.HTTPError as exc:
+                if exc.code != 404:
+                    self.stream_error = f"minute archive HTTP {exc.code}: {url}"
+                day += timedelta(days=1)
+                continue
+            except Exception as exc:
+                self.stream_error = f"minute archive {type(exc).__name__}: {exc}"
+                day += timedelta(days=1)
+                continue
+            with self.lock:
+                for candle in archived:
+                    if start_ms <= candle.open_time_ms <= end_ms:
+                        if candle.open_time_ms not in self.minute_stream[symbol]:
+                            added += 1
+                        self.minute_stream[symbol][candle.open_time_ms] = candle
+                self.minute_stream[symbol] = dict(
+                    sorted(self.minute_stream[symbol].items())[-3000:]
+                )
+            day += timedelta(days=1)
+        if added:
+            self._save_stream_cache(force=True)
+        return added
+
     def minute_candles_with_source(
         self, symbol: str, start_ms: int, end_ms: int, max_minutes: int
     ) -> tuple[list[Candle], str]:
@@ -441,6 +492,16 @@ class BinanceFuturesStreamClient:
                 if timestamp in self.minute_stream[symbol]
             ]
         expected = (last_open - first_open) // MINUTE_MS + 1
+        if len(candles) != expected:
+            self._backfill_completed_minute_archives(
+                symbol, first_open, last_open
+            )
+            with self.lock:
+                candles = [
+                    self.minute_stream[symbol][timestamp]
+                    for timestamp in range(first_open, last_open + 1, MINUTE_MS)
+                    if timestamp in self.minute_stream[symbol]
+                ]
         if len(candles) != expected:
             raise RuntimeError(
                 f"futures minute stream gap for {symbol}: {len(candles)}/{expected}"
