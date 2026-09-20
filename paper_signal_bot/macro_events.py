@@ -24,7 +24,7 @@ TRADING_ECONOMICS_EVENT_REFRESH_SECONDS = int(os.getenv("TRADING_ECONOMICS_EVENT
 OFFICIAL_RESULTS_EVENT_REFRESH_SECONDS = int(os.getenv("OFFICIAL_RESULTS_EVENT_REFRESH_SECONDS", "600"))
 HTTP_USER_AGENT = os.getenv(
     "MACRO_HTTP_USER_AGENT",
-    "Mozilla/5.0 (compatible; crypto-paper-signal-bot/0.1; +https://github.com/dinhhoainam2005-glitch/crypto-paper-signal-bot)",
+    "crypto-paper-signal-bot/0.1",
 )
 ALERT_PHASES = (
     (7 * 24 * 60, "T-7D"),
