@@ -14,7 +14,7 @@ from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
-from .clients import Candle, SOURCE_USDM_FUTURES
+from .clients import BinanceClient, Candle, SOURCE_USDM_FUTURES
 
 
 DAY_MS = 86_400_000
@@ -23,6 +23,7 @@ ARCHIVE_BASE = "https://data.binance.vision/data/futures/um"
 STREAM_BASE = "wss://fstream.binance.com/market/stream?streams="
 DEFAULT_SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT")
 MINUTE_ARCHIVE_RETRY_SECONDS = 900.0
+MINUTE_REST_RETRY_SECONDS = 60.0
 
 
 def normalize_epoch_ms(value: Any) -> int:
@@ -186,6 +187,7 @@ class BinanceFuturesStreamClient:
         archive_root: Path,
         symbols: tuple[str, ...] = DEFAULT_SYMBOLS,
         start_stream: bool = True,
+        gap_client: Any | None = None,
     ) -> None:
         self.symbols = tuple(symbol.upper() for symbol in symbols)
         self.cache_path = cache_path
@@ -203,6 +205,8 @@ class BinanceFuturesStreamClient:
         }
         self.last_mark: dict[str, dict[str, Any]] = {}
         self.minute_archive_attempts: dict[tuple[str, str], float] = {}
+        self.minute_rest_attempts: dict[tuple[str, int, int], float] = {}
+        self.gap_client = gap_client or BinanceClient(timeout_seconds=4.0, retries=0)
         self.last_event_ms: int | None = None
         self.last_persist_monotonic = 0.0
         self.stream_state = "STARTING" if start_stream else "DISABLED_FOR_TEST"
@@ -473,6 +477,59 @@ class BinanceFuturesStreamClient:
             self._save_stream_cache(force=True)
         return added
 
+    def _backfill_current_minute_futures(
+        self, symbol: str, first_open: int, last_open: int
+    ) -> int:
+        with self.lock:
+            missing = [
+                timestamp
+                for timestamp in range(first_open, last_open + 1, MINUTE_MS)
+                if timestamp not in self.minute_stream[symbol]
+            ]
+        if not missing:
+            return 0
+
+        missing_start = min(missing)
+        missing_end = max(missing)
+        key = (symbol, missing_start, missing_end)
+        attempted_at = self.minute_rest_attempts.get(key)
+        now_monotonic = time.monotonic()
+        if (
+            attempted_at is not None
+            and now_monotonic - attempted_at < MINUTE_REST_RETRY_SECONDS
+        ):
+            return 0
+        self.minute_rest_attempts[key] = now_monotonic
+
+        try:
+            candles, source = self.gap_client.futures_minute_candles_with_source(
+                symbol,
+                missing_start,
+                missing_end + MINUTE_MS - 1,
+                (missing_end - missing_start) // MINUTE_MS + 1,
+            )
+        except Exception as exc:
+            self.stream_error = f"minute REST repair {type(exc).__name__}: {exc}"
+            return 0
+        if source != SOURCE_USDM_FUTURES:
+            self.stream_error = f"minute REST repair rejected source: {source}"
+            return 0
+
+        missing_set = set(missing)
+        added = 0
+        with self.lock:
+            for candle in candles:
+                if candle.open_time_ms not in missing_set:
+                    continue
+                self.minute_stream[symbol][candle.open_time_ms] = candle
+                added += 1
+            self.minute_stream[symbol] = dict(
+                sorted(self.minute_stream[symbol].items())[-3000:]
+            )
+        if added:
+            self._save_stream_cache(force=True)
+        return added
+
     def minute_candles_with_source(
         self, symbol: str, start_ms: int, end_ms: int, max_minutes: int
     ) -> tuple[list[Candle], str]:
@@ -496,6 +553,7 @@ class BinanceFuturesStreamClient:
             self._backfill_completed_minute_archives(
                 symbol, first_open, last_open
             )
+            self._backfill_current_minute_futures(symbol, first_open, last_open)
             with self.lock:
                 candles = [
                     self.minute_stream[symbol][timestamp]

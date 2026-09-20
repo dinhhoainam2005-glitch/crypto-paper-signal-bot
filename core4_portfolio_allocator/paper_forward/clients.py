@@ -137,6 +137,33 @@ class BinanceClient:
     def minute_candles_with_source(
         self, symbol: str, start_ms: int, end_ms: int, max_minutes: int
     ) -> tuple[list[Candle], str]:
+        return self._minute_candles_with_source(
+            symbol,
+            start_ms,
+            end_ms,
+            max_minutes,
+            spot_fallback_path="/api/v3/klines",
+        )
+
+    def futures_minute_candles_with_source(
+        self, symbol: str, start_ms: int, end_ms: int, max_minutes: int
+    ) -> tuple[list[Candle], str]:
+        return self._minute_candles_with_source(
+            symbol,
+            start_ms,
+            end_ms,
+            max_minutes,
+            spot_fallback_path=None,
+        )
+
+    def _minute_candles_with_source(
+        self,
+        symbol: str,
+        start_ms: int,
+        end_ms: int,
+        max_minutes: int,
+        spot_fallback_path: str | None,
+    ) -> tuple[list[Candle], str]:
         if end_ms < start_ms:
             return [], SOURCE_USDM_FUTURES
         if (end_ms - start_ms) // 60_000 + 1 > max_minutes:
@@ -154,7 +181,7 @@ class BinanceClient:
                     "endTime": end_ms,
                     "limit": 1500,
                 },
-                spot_fallback_path="/api/v3/klines",
+                spot_fallback_path=spot_fallback_path,
             )
             sources.add(source)
             if not page:

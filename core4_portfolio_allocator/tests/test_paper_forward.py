@@ -20,6 +20,7 @@ from core4_portfolio_allocator.paper_forward.clients import (
     BinanceClient,
     Candle,
     SOURCE_SPOT_FALLBACK,
+    SOURCE_USDM_FUTURES,
 )
 from core4_portfolio_allocator.paper_forward.config import (
     EXPECTED_SPEC_SHA256,
@@ -125,6 +126,19 @@ class SpotFallbackClient(BinanceClient):
         if base_url in self.base_urls:
             raise urllib.error.HTTPError(base_url, 451, "blocked", {}, None)
         return [[1_700_000_000_000, "100", "102", "99", "101", "1", 1_700_086_399_999]]
+
+
+class MinuteGapClient:
+    def __init__(self, candles: list[Candle], source: str = SOURCE_USDM_FUTURES) -> None:
+        self.candles = candles
+        self.source = source
+        self.calls: list[tuple[str, int, int, int]] = []
+
+    def futures_minute_candles_with_source(
+        self, symbol: str, start_ms: int, end_ms: int, max_minutes: int
+    ) -> tuple[list[Candle], str]:
+        self.calls.append((symbol, start_ms, end_ms, max_minutes))
+        return self.candles, self.source
 
 
 class PaperForwardTests(unittest.TestCase):
@@ -300,6 +314,69 @@ class PaperForwardTests(unittest.TestCase):
             )
             self.assertEqual(len(requested), 1)
             self.assertIn(f"SOLUSDT-1m-{yesterday:%Y-%m-%d}.zip", requested[0])
+
+    def test_futures_stream_repairs_current_day_gap_from_futures_rest(self) -> None:
+        current_open = int(time.time() * 1000) // DAY_MS * DAY_MS
+        missing_open = current_open + 60_000
+        gap_client = MinuteGapClient(
+            [Candle(missing_open, 100.0, 102.0, 99.0, 101.0, missing_open + 59_999)]
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            client = BinanceFuturesStreamClient(
+                root / "stream.json",
+                root / "archive",
+                symbols=("SOLUSDT",),
+                start_stream=False,
+                gap_client=gap_client,
+            )
+            client.minute_stream["SOLUSDT"] = {
+                current_open: Candle(
+                    current_open, 99.0, 101.0, 98.0, 100.0, current_open + 59_999
+                ),
+                current_open + 120_000: Candle(
+                    current_open + 120_000,
+                    101.0,
+                    103.0,
+                    100.0,
+                    102.0,
+                    current_open + 179_999,
+                ),
+            }
+
+            candles, source = client.minute_candles_with_source(
+                "SOLUSDT", current_open, current_open + 180_000 - 1, 10
+            )
+
+            self.assertEqual(source, SOURCE_USDM_FUTURES)
+            self.assertEqual(len(candles), 3)
+            self.assertEqual(
+                gap_client.calls,
+                [("SOLUSDT", missing_open, missing_open + 59_999, 1)],
+            )
+
+    def test_futures_stream_rejects_non_futures_gap_repair(self) -> None:
+        current_open = int(time.time() * 1000) // DAY_MS * DAY_MS
+        gap_client = MinuteGapClient(
+            [Candle(current_open, 100.0, 102.0, 99.0, 101.0, current_open + 59_999)],
+            source=SOURCE_SPOT_FALLBACK,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            client = BinanceFuturesStreamClient(
+                root / "stream.json",
+                root / "archive",
+                symbols=("SOLUSDT",),
+                start_stream=False,
+                gap_client=gap_client,
+            )
+
+            with self.assertRaisesRegex(RuntimeError, "futures minute stream gap"):
+                client.minute_candles_with_source(
+                    "SOLUSDT", current_open, current_open + 60_000 - 1, 10
+                )
+
+            self.assertIn("rejected source", client.stream_error or "")
 
     def test_status_messages_show_open_position_and_breakout_proximity(self) -> None:
         position = {
