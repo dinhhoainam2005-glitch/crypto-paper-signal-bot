@@ -6,12 +6,20 @@ from datetime import datetime, timezone
 from paper_signal_bot.macro_events import (
     MACRO_ID,
     MacroScheduledEvent,
+    add_gdp_nowcast,
     add_inflation_nowcast,
     alert_phase,
+    enrich_bls_actuals,
+    enrich_census_actuals,
+    enrich_fed_actuals,
     evaluate_macro_calendar,
     market_impact_for_event,
     link_fomc_outcomes,
+    parse_atlanta_gdpnow,
+    parse_bea_release_actual,
     parse_bls_ics,
+    parse_census_widget,
+    parse_fed_target_results,
     parse_fomc_schedule,
 )
 from paper_signal_bot.telegram import format_macro_digest_message, format_macro_event_message
@@ -45,6 +53,122 @@ FOMC_SAMPLE = """
 
 
 class MacroEventTests(unittest.TestCase):
+    def test_free_official_sources_enrich_forecast_and_actuals(self) -> None:
+        cpi = next(event for event in parse_bls_ics(BLS_SAMPLE) if event.category == "CPI_INFLATION")
+        cpi = add_inflation_nowcast(
+            [cpi],
+            {
+                "monthly": [
+                    {
+                        "month": "August 2026",
+                        "cpi_mom": "0.40",
+                        "core_cpi_mom": "0.20",
+                        "pce_mom": "0.30",
+                        "core_pce_mom": "0.20",
+                        "updated": "09/08",
+                    }
+                ]
+            },
+        )[0]
+        payload = {
+            "Results": {
+                "series": [
+                    {
+                        "seriesID": "CUSR0000SA0",
+                        "data": [
+                            {"year": "2026", "period": "M08", "value": "301.2"},
+                            {"year": "2026", "period": "M07", "value": "300.0"},
+                        ],
+                    },
+                    {
+                        "seriesID": "CUSR0000SA0L1E",
+                        "data": [
+                            {"year": "2026", "period": "M08", "value": "310.62"},
+                            {"year": "2026", "period": "M07", "value": "310.0"},
+                        ],
+                    },
+                ]
+            }
+        }
+
+        enriched = enrich_bls_actuals([cpi], payload)[0]
+
+        self.assertIn("CPI MoM thực tế +0.40%", enriched.actual_summary)
+        self.assertEqual(enriched.actual_sources, ("BLS Public Data API",))
+        self.assertIn("+0", enriched.surprise_summary)
+
+        gdpnow = parse_atlanta_gdpnow(
+            '{"ResearchData":[{"Indicator":"5.1%","UpdatedDate":"2026-09-17T11:00:00",'
+            '"Name":"Third-Quarter GDPNow Estimate for 2026:Q3","IconAlias":"GDPNow"}]}'
+        )
+        gdp = MacroScheduledEvent(
+            title="GDP (Advance Estimate), 3rd Quarter 2026",
+            category="GDP_GROWTH",
+            priority="HIGH",
+            impact_score=78,
+            event_time_utc="2026-10-29T12:30:00+00:00",
+            source="BEA",
+            source_url="https://example.test",
+            rationale="Growth",
+            reference="3rd Quarter 2026",
+        )
+        gdp = add_gdp_nowcast([gdp], gdpnow)[0]
+        self.assertIn("5.1%", gdp.forecast_summary)
+        self.assertEqual(gdp.forecast_sources, ("Atlanta Fed GDPNow",))
+
+    def test_fed_census_and_bea_official_result_parsers(self) -> None:
+        fed_html = """
+        <a id="2026" name="2026"></a><h4>2026</h4><table>
+        <tr><th>Date</th><th>Increase</th><th>Decrease</th><th>Level (%)</th></tr>
+        <tr><td>September 17</td><td>25</td><td>0</td><td>3.75-4.00</td></tr>
+        </table>
+        """
+        fed_results = parse_fed_target_results(fed_html)
+        decision = MacroScheduledEvent(
+            title="FOMC Rate Decision",
+            category="FOMC_RATE_DECISION",
+            priority="CRITICAL",
+            impact_score=100,
+            event_time_utc="2026-09-17T18:00:00+00:00",
+            source="Federal Reserve",
+            source_url="https://example.test",
+            rationale="Fed",
+        )
+        decision = enrich_fed_actuals([decision], fed_results)[0]
+        self.assertIn("3.75-4.00%", decision.actual_summary)
+        self.assertIn("tăng 25 bps", decision.actual_summary)
+
+        census_html = """
+        <article class="row"><div class="info_row"><span class="tooltip bottom"
+        aria-label="Advance Monthly Sales for Retail and Food Services">Retail</span>
+        <span class="date">August 2026 Report</span></div><div class="value_row">
+        <span class="change tooltip top">$773.9 B</span><span class="sub_change"></span>
+        <div class="increase sig"></div><span class="">1.2%</span></div></article>
+        """
+        rows = parse_census_widget(census_html)
+        retail = MacroScheduledEvent(
+            title="Advance Monthly Sales for Retail and Food Services",
+            category="RETAIL_SALES",
+            priority="HIGH",
+            impact_score=74,
+            event_time_utc="2026-09-16T12:30:00+00:00",
+            source="Census",
+            source_url="https://example.test",
+            rationale="Demand",
+            reference="August 2026",
+        )
+        retail = enrich_census_actuals([retail], rows)[0]
+        self.assertIn("1.2%", retail.actual_summary)
+        self.assertEqual(retail.actual_sources, ("U.S. Census Economic Indicators",))
+
+        bea = parse_bea_release_actual(
+            "From the preceding month, the PCE price index for August increased 0.3 percent. "
+            "Excluding food and energy, the PCE price index also increased 0.2 percent.",
+            "PCE_INFLATION",
+        )
+        self.assertEqual(bea["primary_value"], 0.3)
+        self.assertIn("Core PCE MoM +0.20%", bea["summary"])
+
     def test_fomc_press_conference_receives_linked_rate_decision_result(self) -> None:
         decision = MacroScheduledEvent(
             title="FOMC Rate Decision",
@@ -124,6 +248,42 @@ class MacroEventTests(unittest.TestCase):
         self.assertIn("KẾT QUẢ THỰC TẾ", text)
         self.assertIn("PHẢN ỨNG CRYPTO SAU SỰ KIỆN", text)
         self.assertIn("Thực tế 0.40%", text)
+        digest = format_macro_digest_message([alert])
+        self.assertIn("Dự báo:", digest)
+        self.assertIn("Kết quả:", digest)
+        self.assertIn("Crypto 1h:", digest)
+
+    def test_post_event_reaction_generates_a_distinct_delivery_update(self) -> None:
+        event_time = "2026-09-10T12:30:00+00:00"
+        event_ms = ms(event_time)
+        payload = {
+            "calendar": [
+                {
+                    "title": "Consumer Price Index",
+                    "category": "CPI_INFLATION",
+                    "priority": "CRITICAL",
+                    "impact_score": 95,
+                    "event_time_utc": event_time,
+                    "source": "BLS",
+                    "source_url": "https://example.test",
+                    "rationale": "Inflation risk",
+                }
+            ],
+            "source_states": [{"source": "BLS", "status": "OK"}],
+        }
+        first = evaluate_macro_calendar(payload, ms("2026-09-10T12:35:00+00:00"))["events"][0]
+        rows = {
+            (symbol, "1h"): [
+                [event_ms - 3_600_000, 100, 100, 100, 100, 100, event_ms - 1_800_000],
+                [event_ms + 1_800_000, 100, 101, 100, 101, 100, event_ms + 5_400_000],
+            ]
+            for symbol in ("BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT")
+        }
+        reaction = evaluate_macro_calendar(payload, ms("2026-09-10T13:35:00+00:00"), rows)["events"][0]
+
+        self.assertNotEqual(first["event_id"], reaction["event_id"])
+        self.assertEqual(reaction["delivery_phase"], "RESULT_PENDING_REACTION_1H")
+        self.assertEqual(reaction["reaction_status"], "AVAILABLE")
 
     def test_bls_cpi_event_enriches_with_inflation_nowcast_and_alerts_t24h(self) -> None:
         events = parse_bls_ics(BLS_SAMPLE)

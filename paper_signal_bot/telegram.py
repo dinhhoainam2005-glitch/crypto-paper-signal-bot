@@ -244,6 +244,7 @@ def forecast_label(value: Any) -> str:
         return "Chưa có dự báo định lượng; đây là cảnh báo theo lịch chính thức."
     replacements = {
         "Cleveland Fed nowcast:": "Nowcast Cleveland Fed:",
+        "Atlanta Fed GDPNow:": "Nowcast GDP Atlanta Fed:",
         "Consensus": "Đồng thuận",
         "TE forecast": "Dự báo TE",
         "Previous": "Kỳ trước",
@@ -388,6 +389,72 @@ def short_text(value: Any, limit: int = 160) -> str:
     return text[: limit - 3] + "..."
 
 
+def compact_macro_event_lines(event: dict[str, Any]) -> list[str]:
+    priority = str(event.get("priority", "MEDIUM")).upper()
+    icon = "🔴" if priority == "CRITICAL" else "🟠" if priority == "HIGH" else "🟡"
+    phase = str(event.get("phase") or "").upper()
+    forecast_sources = event.get("forecast_sources") or []
+    forecast_source = ", ".join(str(item) for item in forecast_sources)
+    schedule_source = str(event.get("source") or "lịch chính thức")
+    lines = [
+        "{icon} <b>{title}</b> | {time} | <b>{phase}</b>".format(
+            icon=icon,
+            title=esc(macro_title_label(event)),
+            time=esc(compact_vn_label(event.get("event_time_utc"))),
+            phase=esc(macro_phase_label(phase)),
+        ),
+        "• Dự báo: {forecast}".format(
+            forecast=esc(short_text(forecast_label(event.get("forecast_summary")), 210)),
+        ),
+        "• Nguồn: <code>{source}</code>".format(
+            source=esc(short_text(forecast_source or schedule_source, 150)),
+        ),
+    ]
+    if phase == "LIVE":
+        lines.append("• Kết quả: <b>ĐANG CHỜ NGUỒN CÔNG BỐ</b>")
+    if phase in {"RESULT", "RESULT_PENDING"}:
+        actual = event.get("actual_summary")
+        lines.append(
+            "• Kết quả: {actual}".format(
+                actual=(
+                    esc(short_text(actual_label(actual), 220))
+                    if actual
+                    else "<b>CHƯA CÓ TỪ NGUỒN XÁC MINH</b>"
+                ),
+            )
+        )
+        if actual and event.get("actual_sources"):
+            lines.append(
+                "• Nguồn kết quả: <code>{source}</code>".format(
+                    source=esc(short_text(", ".join(str(item) for item in event.get("actual_sources") or []), 150)),
+                )
+            )
+        if event.get("surprise_summary"):
+            lines.append("• So với dự báo: {value}".format(value=esc(actual_label(event.get("surprise_summary")))))
+        impact = event.get("market_impact") or {}
+        if impact:
+            assets = impact.get("assets") or {}
+            reactions = []
+            for symbol in ("BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT"):
+                if symbol in assets:
+                    reactions.append(
+                        "{symbol} {value:+.2f}%".format(
+                            symbol=symbol.replace("USDT", ""),
+                            value=float(assets[symbol].get("return_pct", 0.0)),
+                        )
+                    )
+            lines.append(
+                "• Crypto 1h: <b>{direction}</b> {mean:+.2f}% | {assets}".format(
+                    direction=esc(impact.get("direction", "n/a")),
+                    mean=float(impact.get("basket_mean_pct", 0.0)),
+                    assets=esc(" | ".join(reactions) or "chưa đủ từng coin"),
+                )
+            )
+        else:
+            lines.append("• Crypto 1h: đang chờ đủ nến Futures đã đóng.")
+    return lines
+
+
 def bot_label(strategy_id: str | None = None) -> str:
     text = strategy_id or ""
     if text.startswith("R26A"):
@@ -530,16 +597,7 @@ def format_startup_message(
     if events:
         lines.extend(["", "🗓️ <b>VĨ MÔ CẦN LƯU Ý ({count})</b>".format(count=len(events))])
         for event in events:
-            priority = str(event.get("priority", "MEDIUM")).upper()
-            icon = "🔴" if priority == "CRITICAL" else "🟠" if priority == "HIGH" else "🟡"
-            lines.append(
-                "• {icon} <b>{title}</b> | {time} | {phase}".format(
-                    icon=icon,
-                    title=esc(macro_title_label(event)),
-                    time=esc(compact_vn_label(event.get("event_time_utc"))),
-                    phase=esc(event.get("phase", "n/a")),
-                )
-            )
+            lines.extend(compact_macro_event_lines(event))
     else:
         lines.extend(["", "🗓️ Vĩ mô: <b>không có cảnh báo mới</b>"])
     lines.extend(
@@ -959,17 +1017,10 @@ def format_macro_digest_message(events: list[dict[str, Any]]) -> str:
         "🗓️⚠️ <b>CẢNH BÁO VĨ MÔ — {count} SỰ KIỆN</b>".format(count=len(ordered)),
         "━━━━━━━━━━━━━━━━━━━━━━━━",
     ]
-    for event in ordered:
-        priority = str(event.get("priority", "MEDIUM")).upper()
-        icon = "🔴" if priority == "CRITICAL" else "🟠" if priority == "HIGH" else "🟡"
-        lines.append(
-            "• {icon} <b>{title}</b> | {time} | {phase}".format(
-                icon=icon,
-                title=esc(macro_title_label(event)),
-                time=esc(compact_vn_label(event.get("event_time_utc"))),
-                phase=esc(macro_phase_label(event.get("phase", "n/a"))),
-            )
-        )
+    for index, event in enumerate(ordered):
+        if index:
+            lines.append("")
+        lines.extend(compact_macro_event_lines(event))
     lines.extend(
         [
             "",

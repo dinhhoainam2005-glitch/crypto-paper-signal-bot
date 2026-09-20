@@ -101,7 +101,9 @@ macro events that can move USD liquidity, rates, DXY and crypto beta:
 - BEA release schedule for GDP and Personal Income & Outlays/PCE
 - Census economic-indicator calendar for retail sales and durable goods
 - Cleveland Fed inflation nowcasting for CPI/PCE forecast context
-- Optional Trading Economics consensus and actual release values if `TRADING_ECONOMICS_API_KEY` is configured
+- Atlanta Fed GDPNow for GDP forecast context
+- Official actual values from BLS, Federal Reserve, Census and BEA public sources
+- Optional Trading Economics market consensus if `TRADING_ECONOMICS_API_KEY` is configured
 
 R28A sends `WATCH ONLY` macro-risk alerts at `T-7D`, `T-24H`, `T-6H`, `T-1H`,
 `T-15M` and `LIVE` windows. Alerts discovered in the same scan are delivered as
@@ -215,6 +217,7 @@ MAX_MACRO_EVENTS_PER_SCAN=6
 MACRO_ALERT_RETRY_MINUTES=90
 TRADING_ECONOMICS_CACHE_SECONDS=86400
 TRADING_ECONOMICS_EVENT_REFRESH_SECONDS=3600
+OFFICIAL_RESULTS_EVENT_REFRESH_SECONDS=600
 TRADING_ECONOMICS_API_KEY=<optional consensus forecast provider>
 TELEGRAM_ENABLED=true
 TELEGRAM_STARTUP_ENABLED=true
@@ -225,7 +228,7 @@ TELEGRAM_BOT_TOKEN=<your bot token from BotFather>
 TELEGRAM_CHAT_ID=<your Telegram chat id>
 ```
 
-Macro alerts are watch-only. Official calendars provide the schedule; Cleveland Fed provides inflation nowcasts; when `TRADING_ECONOMICS_API_KEY` is configured, the bot also records consensus, actual release values, and the actual-vs-consensus surprise. After the event, the bot measures the observed 1h reaction of BTC, ETH, SOL, and BNB from Binance Futures candles. This reaction is descriptive and is not treated as a causal trade signal.
+Macro alerts are watch-only. Official calendars provide the schedule; Cleveland Fed and Atlanta Fed provide CPI/PCE and GDP forecast context. BLS, Federal Reserve, Census and BEA public sources supply official actual values without an API key. When `TRADING_ECONOMICS_API_KEY` is configured, it can add market consensus context. After the event, the bot sends the official result when available and then a separate update measuring the observed 1h reaction of BTC, ETH, SOL, and BNB from Binance Futures candles. This reaction is descriptive and is not treated as a causal trade signal.
 
 For local worker smoke test:
 

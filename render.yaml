@@ -62,6 +62,8 @@ services:
         value: "86400"
       - key: TRADING_ECONOMICS_EVENT_REFRESH_SECONDS
         value: "3600"
+      - key: OFFICIAL_RESULTS_EVENT_REFRESH_SECONDS
+        value: "600"
       - key: TRADING_ECONOMICS_API_KEY
         sync: false
       - key: TELEGRAM_ENABLED

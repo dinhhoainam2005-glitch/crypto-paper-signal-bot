@@ -21,6 +21,11 @@ LOOKBACK_MINUTES = int(os.getenv("MACRO_LOOKBACK_MINUTES", "90"))
 ALERT_RETRY_MINUTES = int(os.getenv("MACRO_ALERT_RETRY_MINUTES", "90"))
 TRADING_ECONOMICS_CACHE_SECONDS = int(os.getenv("TRADING_ECONOMICS_CACHE_SECONDS", "86400"))
 TRADING_ECONOMICS_EVENT_REFRESH_SECONDS = int(os.getenv("TRADING_ECONOMICS_EVENT_REFRESH_SECONDS", "3600"))
+OFFICIAL_RESULTS_EVENT_REFRESH_SECONDS = int(os.getenv("OFFICIAL_RESULTS_EVENT_REFRESH_SECONDS", "600"))
+HTTP_USER_AGENT = os.getenv(
+    "MACRO_HTTP_USER_AGENT",
+    "Mozilla/5.0 (compatible; crypto-paper-signal-bot/0.1; +https://github.com/dinhhoainam2005-glitch/crypto-paper-signal-bot)",
+)
 ALERT_PHASES = (
     (7 * 24 * 60, "T-7D"),
     (24 * 60, "T-24H"),
@@ -31,6 +36,7 @@ ALERT_PHASES = (
 
 
 _trading_economics_cache: tuple[datetime, list[MacroScheduledEvent], dict[str, Any]] | None = None
+_official_results_cache: dict[str, tuple[datetime, dict[str, Any], dict[str, Any]]] = {}
 
 
 SOURCE_URLS = {
@@ -39,7 +45,23 @@ SOURCE_URLS = {
     "bea_schedule": "https://www.bea.gov/news/schedule",
     "census_schedule": "https://www.census.gov/economic-indicators/calendar-listview.html",
     "cleveland_nowcast": "https://www.clevelandfed.org/indicators-and-data/inflation-nowcasting",
+    "atlanta_gdpnow": "https://www.atlantafed.org/data/research-data",
+    "bls_api": "https://api.bls.gov/publicAPI/v2/timeseries/data/",
+    "fed_openmarket": "https://www.federalreserve.gov/monetarypolicy/openmarket.htm",
+    "census_widget": "https://www.census.gov/econwidget",
+    "bea_releases": "https://www.bea.gov/news/current-releases",
     "trading_economics": "https://api.tradingeconomics.com/calendar",
+}
+
+
+BLS_SERIES = {
+    "headline_cpi": "CUSR0000SA0",
+    "core_cpi": "CUSR0000SA0L1E",
+    "nonfarm_payrolls": "CES0000000001",
+    "unemployment_rate": "LNS14000000",
+    "average_hourly_earnings": "CES0500000003",
+    "ppi_final_demand": "WPSFD4",
+    "job_openings": "JTS000000000000000JOL",
 }
 
 
@@ -128,6 +150,37 @@ class TableCollector(HTMLParser):
             self._cell_parts.append(data)
 
 
+class TextLinkCollector(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.parts: list[str] = []
+        self.links: list[tuple[str, str]] = []
+        self._href: str | None = None
+        self._link_parts: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag != "a":
+            return
+        values = dict(attrs)
+        self._href = values.get("href")
+        self._link_parts = []
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "a" and self._href is not None:
+            self.links.append((clean_text(" ".join(self._link_parts)), self._href))
+            self._href = None
+            self._link_parts = []
+
+    def handle_data(self, data: str) -> None:
+        self.parts.append(data)
+        if self._href is not None:
+            self._link_parts.append(data)
+
+    @property
+    def text(self) -> str:
+        return clean_text(" ".join(self.parts))
+
+
 def clean_text(value: Any) -> str:
     text = html.unescape("" if value is None else str(value))
     return " ".join(text.replace("\xa0", " ").split())
@@ -151,6 +204,8 @@ def surprise_summary(actual: Any, forecast: Any) -> str | None:
     if actual_number is None or forecast_number is None:
         return None
     delta = actual_number - forecast_number
+    if abs(delta) < 1e-9:
+        delta = 0.0
     return f"Chênh lệch actual - consensus: {delta:+.4g}"
 
 
@@ -169,10 +224,27 @@ def parse_iso(value: str) -> datetime:
 def fetch_text(url: str, timeout: float = 12.0) -> str:
     request = urllib.request.Request(
         url,
-        headers={"User-Agent": "crypto-paper-signal-bot/0.1"},
+        headers={"User-Agent": HTTP_USER_AGENT},
     )
     with urllib.request.urlopen(request, timeout=timeout) as response:
         return response.read().decode("utf-8", errors="replace")
+
+
+def post_json(url: str, payload: dict[str, Any], timeout: float = 15.0) -> dict[str, Any]:
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Content-Type": "application/json",
+            "User-Agent": HTTP_USER_AGENT,
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(request, timeout=timeout) as response:
+        decoded = json.loads(response.read().decode("utf-8", errors="replace"))
+    if not isinstance(decoded, dict):
+        raise ValueError("expected JSON object")
+    return decoded
 
 
 def collect_tables(markup: str) -> list[dict[str, Any]]:
@@ -465,6 +537,480 @@ def parse_cleveland_nowcast(text: str) -> dict[str, Any]:
     return result
 
 
+def quarter_key(value: Any) -> str | None:
+    text = clean_text(value)
+    direct = re.search(r"(20\d{2})\s*:?\s*Q([1-4])", text, flags=re.I)
+    if direct:
+        return f"{direct.group(1)}:Q{direct.group(2)}"
+    named = re.search(r"([1-4])(?:st|nd|rd|th)\s+Quarter\s+(20\d{2})", text, flags=re.I)
+    if named:
+        return f"{named.group(2)}:Q{named.group(1)}"
+    return None
+
+
+def parse_atlanta_gdpnow(text: str) -> dict[str, Any]:
+    payload = json.loads(text)
+    rows = payload.get("ResearchData", []) if isinstance(payload, dict) else []
+    for row in rows:
+        if clean_text(row.get("IconAlias")).upper() != "GDPNOW":
+            continue
+        indicator = clean_text(row.get("Indicator"))
+        name = clean_text(row.get("Name"))
+        return {
+            "value": indicator,
+            "name": name,
+            "quarter": quarter_key(name),
+            "updated": clean_text(row.get("UpdatedDate")),
+            "source": "Atlanta Fed GDPNow",
+        }
+    return {}
+
+
+def add_gdp_nowcast(events: list[MacroScheduledEvent], forecast: dict[str, Any]) -> list[MacroScheduledEvent]:
+    if not forecast.get("value"):
+        return events
+    enriched: list[MacroScheduledEvent] = []
+    for event in events:
+        if event.category != "GDP_GROWTH" or (
+            forecast.get("quarter") and quarter_key(event.reference) != forecast.get("quarter")
+        ):
+            enriched.append(event)
+            continue
+        summary = "Atlanta Fed GDPNow: real GDP {value} SAAR (updated {updated})".format(
+            value=forecast.get("value"),
+            updated=forecast.get("updated") or "n/a",
+        )
+        enriched.append(
+            MacroScheduledEvent(
+                **{
+                    **event.__dict__,
+                    "forecast_summary": summary,
+                    "forecast_sources": tuple(dict.fromkeys((*event.forecast_sources, "Atlanta Fed GDPNow"))),
+                    "forecast_confidence": "NOWCAST",
+                }
+            )
+        )
+    return enriched
+
+
+def reference_key(value: Any) -> str:
+    return clean_text(value).lower()
+
+
+def update_actual(
+    event: MacroScheduledEvent,
+    *,
+    summary: str,
+    source: str,
+    primary_value: Any | None = None,
+) -> MacroScheduledEvent:
+    comparison = surprise_summary(primary_value, event.forecast_summary) if event.forecast_summary else None
+    return MacroScheduledEvent(
+        **{
+            **event.__dict__,
+            "actual_summary": summary,
+            "actual_sources": (source,),
+            "surprise_summary": comparison,
+        }
+    )
+
+
+def period_key(row: dict[str, Any]) -> str | None:
+    period = clean_text(row.get("period"))
+    if not re.fullmatch(r"M(?:0[1-9]|1[0-2])", period):
+        return None
+    month = int(period[1:])
+    year = int(row.get("year"))
+    return datetime(year, month, 1).strftime("%B %Y").lower()
+
+
+def bls_series(payload: dict[str, Any]) -> dict[str, list[dict[str, Any]]]:
+    output: dict[str, list[dict[str, Any]]] = {}
+    for item in payload.get("Results", {}).get("series", []):
+        rows = [row for row in item.get("data", []) if period_key(row)]
+        rows.sort(key=lambda row: (int(row["year"]), int(str(row["period"])[1:])))
+        output[clean_text(item.get("seriesID"))] = rows
+    return output
+
+
+def row_value(rows: list[dict[str, Any]], reference: str, offset: int = 0) -> float | None:
+    index = next((idx for idx, row in enumerate(rows) if period_key(row) == reference), None)
+    if index is None or index + offset < 0 or index + offset >= len(rows):
+        return None
+    try:
+        return float(rows[index + offset]["value"])
+    except (KeyError, TypeError, ValueError):
+        return None
+
+
+def percent_change(current: float | None, previous: float | None) -> float | None:
+    if current is None or previous in (None, 0):
+        return None
+    return (current / previous - 1.0) * 100.0
+
+
+def signed(value: float | None, digits: int = 2, suffix: str = "%") -> str:
+    if value is None:
+        return "n/a"
+    return f"{value:+.{digits}f}{suffix}"
+
+
+def enrich_bls_actuals(events: list[MacroScheduledEvent], payload: dict[str, Any]) -> list[MacroScheduledEvent]:
+    series = bls_series(payload)
+    enriched: list[MacroScheduledEvent] = []
+    for event in events:
+        reference = reference_key(event.reference)
+        if not reference:
+            enriched.append(event)
+            continue
+        result: MacroScheduledEvent | None = None
+        if event.category == "CPI_INFLATION":
+            headline_rows = series.get(BLS_SERIES["headline_cpi"], [])
+            core_rows = series.get(BLS_SERIES["core_cpi"], [])
+            headline = percent_change(row_value(headline_rows, reference), row_value(headline_rows, reference, -1))
+            core = percent_change(row_value(core_rows, reference), row_value(core_rows, reference, -1))
+            yoy = percent_change(row_value(headline_rows, reference), row_value(headline_rows, reference, -12))
+            if headline is not None:
+                result = update_actual(
+                    event,
+                    summary=f"CPI MoM thực tế {signed(headline)} | CPI lõi MoM {signed(core)} | CPI YoY {signed(yoy)}",
+                    source="BLS Public Data API",
+                    primary_value=headline,
+                )
+        elif event.category == "PPI_INFLATION":
+            rows = series.get(BLS_SERIES["ppi_final_demand"], [])
+            change = percent_change(row_value(rows, reference), row_value(rows, reference, -1))
+            if change is not None:
+                result = update_actual(
+                    event,
+                    summary=f"PPI final demand MoM thực tế {signed(change)}",
+                    source="BLS Public Data API",
+                    primary_value=change,
+                )
+        elif event.category == "NFP_LABOR":
+            payroll_rows = series.get(BLS_SERIES["nonfarm_payrolls"], [])
+            unemployment_rows = series.get(BLS_SERIES["unemployment_rate"], [])
+            earnings_rows = series.get(BLS_SERIES["average_hourly_earnings"], [])
+            payroll = row_value(payroll_rows, reference)
+            previous_payroll = row_value(payroll_rows, reference, -1)
+            payroll_change = payroll - previous_payroll if payroll is not None and previous_payroll is not None else None
+            unemployment = row_value(unemployment_rows, reference)
+            earnings = percent_change(row_value(earnings_rows, reference), row_value(earnings_rows, reference, -1))
+            if payroll_change is not None:
+                result = update_actual(
+                    event,
+                    summary="NFP thực tế {jobs}K | Thất nghiệp {unemployment} | Lương giờ MoM {earnings}".format(
+                        jobs=signed(payroll_change, 0, ""),
+                        unemployment="n/a" if unemployment is None else f"{unemployment:.1f}%",
+                        earnings=signed(earnings),
+                    ),
+                    source="BLS Public Data API",
+                    primary_value=payroll_change,
+                )
+        elif event.category == "JOLTS_LABOR":
+            openings = row_value(series.get(BLS_SERIES["job_openings"], []), reference)
+            if openings is not None:
+                result = update_actual(
+                    event,
+                    summary=f"JOLTS việc làm mở thực tế {openings / 1000.0:.3f}M",
+                    source="BLS Public Data API",
+                    primary_value=openings / 1000.0,
+                )
+        enriched.append(result or event)
+    return enriched
+
+
+def parse_fed_target_results(text: str) -> dict[str, dict[str, Any]]:
+    results: dict[str, dict[str, Any]] = {}
+    anchors = list(re.finditer(r'<a\s+id="(20\d{2})"[^>]*>', text, flags=re.I))
+    for index, anchor in enumerate(anchors):
+        year = int(anchor.group(1))
+        end = anchors[index + 1].start() if index + 1 < len(anchors) else len(text)
+        for table in collect_tables(text[anchor.end():end]):
+            for row in table["rows"]:
+                if len(row) < 4 or row[0].lower() == "date":
+                    continue
+                try:
+                    date = datetime.strptime(f"{row[0]} {year}", "%B %d %Y").date().isoformat()
+                except ValueError:
+                    continue
+                increase = numeric_value(row[1]) or 0.0
+                decrease = numeric_value(row[2]) or 0.0
+                level = clean_text(row[3])
+                action = f"tăng {increase:.0f} bps" if increase else f"giảm {decrease:.0f} bps" if decrease else "giữ nguyên"
+                results[date] = {
+                    "summary": f"Biên lãi suất Fed thực tế {level}% | {action}",
+                    "primary_value": numeric_value(level),
+                }
+    return results
+
+
+def enrich_fed_actuals(events: list[MacroScheduledEvent], results: dict[str, dict[str, Any]]) -> list[MacroScheduledEvent]:
+    enriched: list[MacroScheduledEvent] = []
+    for event in events:
+        if event.category != "FOMC_RATE_DECISION":
+            enriched.append(event)
+            continue
+        date = parse_iso(event.event_time_utc).astimezone(EASTERN).date().isoformat()
+        actual = results.get(date)
+        enriched.append(
+            update_actual(
+                event,
+                summary=actual["summary"],
+                source="Federal Reserve Open Market Operations",
+                primary_value=actual.get("primary_value"),
+            )
+            if actual
+            else event
+        )
+    return enriched
+
+
+def parse_census_widget(text: str) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    for match in re.finditer(r'<article\s+class="row">(.*?)</article>', text, flags=re.I | re.S):
+        block = match.group(1)
+        name_match = re.search(r'aria-label="([^"]+)"', block, flags=re.I)
+        reference_match = re.search(r'<span\s+class="date">([^<]+?)\s+Report</span>', block, flags=re.I)
+        value_match = re.search(r'<span\s+class="change tooltip top"[^>]*>([^<]+)</span>', block, flags=re.I)
+        detail_match = re.search(r'<span\s+class="sub_change">([^<]*)</span>', block, flags=re.I)
+        change_match = re.search(
+            r'<div\s+class="(increase|decrease)[^"]*".*?</div>\s*<span\s+class="">([^<]+)</span>',
+            block,
+            flags=re.I | re.S,
+        )
+        if not name_match or not reference_match or not value_match:
+            continue
+        change = clean_text(change_match.group(2)) if change_match else "n/a"
+        if change_match and change_match.group(1).lower() == "decrease" and not change.startswith("-"):
+            change = f"-{change}"
+        results.append(
+            {
+                "name": clean_text(name_match.group(1)),
+                "reference": clean_text(reference_match.group(1)),
+                "value": clean_text(value_match.group(1)),
+                "detail": clean_text(detail_match.group(1)) if detail_match else "",
+                "change": change,
+            }
+        )
+    return results
+
+
+def enrich_census_actuals(events: list[MacroScheduledEvent], results: list[dict[str, Any]]) -> list[MacroScheduledEvent]:
+    enriched: list[MacroScheduledEvent] = []
+    for event in events:
+        actual = next(
+            (
+                row
+                for row in results
+                if reference_key(row.get("reference")) == reference_key(event.reference)
+                and (
+                    (event.category == "RETAIL_SALES" and "retail" in reference_key(row.get("name")))
+                    or (event.category == "HOUSING" and "residential construction" in reference_key(row.get("name")) and "construction" in reference_key(event.title))
+                )
+            ),
+            None,
+        )
+        if not actual:
+            enriched.append(event)
+            continue
+        if event.category == "RETAIL_SALES":
+            summary = f"Doanh số bán lẻ MoM thực tế {actual['change']} | Mức {actual['value']}"
+            primary = numeric_value(actual["change"])
+        else:
+            summary = f"Housing starts thực tế {actual['value']} | Thay đổi {actual['change']}"
+            primary = numeric_value(actual["value"])
+        enriched.append(
+            update_actual(
+                event,
+                summary=summary,
+                source="U.S. Census Economic Indicators",
+                primary_value=primary,
+            )
+        )
+    return enriched
+
+
+def parse_bea_release_actual(text: str, category: str) -> dict[str, Any] | None:
+    parser = TextLinkCollector()
+    parser.feed(text)
+    plain = parser.text
+    if category == "PCE_INFLATION":
+        match = re.search(
+            r"From the preceding month, the PCE price index for \w+ (increased|decreased) ([\d.]+) percent.*?"
+            r"Excluding food and energy, the PCE price index (?:also )?(increased|decreased) ([\d.]+) percent",
+            plain,
+            flags=re.I,
+        )
+        if match:
+            headline = float(match.group(2)) * (-1 if match.group(1).lower() == "decreased" else 1)
+            core = float(match.group(4)) * (-1 if match.group(3).lower() == "decreased" else 1)
+            return {
+                "summary": f"PCE price index MoM thực tế {signed(headline)} | Core PCE MoM {signed(core)}",
+                "primary_value": headline,
+            }
+    if category == "GDP_GROWTH":
+        match = re.search(
+            r"Real gross domestic product \(GDP\) (increased|decreased) at an annual rate of ([\d.]+) percent",
+            plain,
+            flags=re.I,
+        )
+        if match:
+            value = float(match.group(2)) * (-1 if match.group(1).lower() == "decreased" else 1)
+            return {"summary": f"GDP thực tế {signed(value)} SAAR", "primary_value": value}
+    return None
+
+
+def fetch_bea_actuals(events: list[MacroScheduledEvent]) -> dict[tuple[str, str], dict[str, Any]]:
+    index_text = fetch_text(SOURCE_URLS["bea_releases"], timeout=15.0)
+    parser = TextLinkCollector()
+    parser.feed(index_text)
+    output: dict[tuple[str, str], dict[str, Any]] = {}
+    for event in events:
+        if event.category not in {"PCE_INFLATION", "GDP_GROWTH"}:
+            continue
+        reference = reference_key(event.reference)
+        link = next(
+            (
+                href
+                for label, href in parser.links
+                if reference
+                and reference in reference_key(label)
+                and (
+                    (event.category == "PCE_INFLATION" and "personal income and outlays" in reference_key(label))
+                    or (event.category == "GDP_GROWTH" and "gdp" in reference_key(label))
+                )
+            ),
+            None,
+        )
+        if not link:
+            continue
+        actual = parse_bea_release_actual(
+            fetch_text(urllib.parse.urljoin(SOURCE_URLS["bea_releases"], link), timeout=15.0),
+            event.category,
+        )
+        if actual:
+            output[(event.category, reference)] = actual
+    return output
+
+
+def enrich_bea_actuals(events: list[MacroScheduledEvent], results: dict[tuple[str, str], dict[str, Any]]) -> list[MacroScheduledEvent]:
+    enriched: list[MacroScheduledEvent] = []
+    for event in events:
+        actual = results.get((event.category, reference_key(event.reference)))
+        enriched.append(
+            update_actual(
+                event,
+                summary=actual["summary"],
+                source="U.S. Bureau of Economic Analysis",
+                primary_value=actual.get("primary_value"),
+            )
+            if actual
+            else event
+        )
+    return enriched
+
+
+def cached_official_result(
+    source: str,
+    now: datetime,
+    fetcher: Any,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    cached = _official_results_cache.get(source)
+    if cached and (now - cached[0]).total_seconds() < OFFICIAL_RESULTS_EVENT_REFRESH_SECONDS:
+        cached_at, payload, state = cached
+        return payload, {
+            **state,
+            "status": "CACHED",
+            "cache_age_seconds": round((now - cached_at).total_seconds()),
+        }
+    payload = fetcher()
+    count = len(payload) if hasattr(payload, "__len__") else 0
+    state = {"source": source, "status": "OK", "events": count}
+    _official_results_cache[source] = (now, payload, state)
+    return payload, state
+
+
+def enrich_official_actuals(
+    events: list[MacroScheduledEvent],
+    now: datetime,
+) -> tuple[list[MacroScheduledEvent], list[dict[str, Any]]]:
+    past = [
+        event
+        for event in events
+        if -LOOKBACK_MINUTES <= (parse_iso(event.event_time_utc) - now).total_seconds() / 60.0 < 0
+    ]
+    if not past:
+        return events, []
+    enriched = events
+    states: list[dict[str, Any]] = []
+    categories = {event.category for event in past}
+
+    if categories & {"CPI_INFLATION", "PPI_INFLATION", "NFP_LABOR", "JOLTS_LABOR"}:
+        try:
+            payload, state = cached_official_result(
+                "BLS Public Data API",
+                now,
+                lambda: post_json(
+                    SOURCE_URLS["bls_api"],
+                    {
+                        "seriesid": list(BLS_SERIES.values()),
+                        "startyear": str(now.year - 2),
+                        "endyear": str(now.year),
+                    },
+                ),
+            )
+            state["url"] = SOURCE_URLS["bls_api"]
+            states.append(state)
+            enriched = enrich_bls_actuals(enriched, payload)
+        except Exception as exc:
+            states.append({"source": "BLS Public Data API", "status": "ERROR", "events": 0, "url": SOURCE_URLS["bls_api"], "error": type(exc).__name__})
+
+    if categories & {"FOMC_RATE_DECISION", "FOMC_PRESS_CONFERENCE"}:
+        try:
+            payload, state = cached_official_result(
+                "Federal Reserve Open Market Operations",
+                now,
+                lambda: parse_fed_target_results(fetch_text(SOURCE_URLS["fed_openmarket"])),
+            )
+            state["url"] = SOURCE_URLS["fed_openmarket"]
+            states.append(state)
+            enriched = enrich_fed_actuals(enriched, payload)
+        except Exception as exc:
+            states.append({"source": "Federal Reserve Open Market Operations", "status": "ERROR", "events": 0, "url": SOURCE_URLS["fed_openmarket"], "error": type(exc).__name__})
+
+    if categories & {"RETAIL_SALES", "HOUSING"}:
+        try:
+            payload, state = cached_official_result(
+                "U.S. Census Economic Indicators",
+                now,
+                lambda: {"rows": parse_census_widget(fetch_text(SOURCE_URLS["census_widget"]))},
+            )
+            state["url"] = SOURCE_URLS["census_widget"]
+            state["events"] = len(payload.get("rows", []))
+            states.append(state)
+            enriched = enrich_census_actuals(enriched, payload.get("rows", []))
+        except Exception as exc:
+            states.append({"source": "U.S. Census Economic Indicators", "status": "ERROR", "events": 0, "url": SOURCE_URLS["census_widget"], "error": type(exc).__name__})
+
+    if categories & {"PCE_INFLATION", "GDP_GROWTH"}:
+        try:
+            relevant = [event for event in past if event.category in {"PCE_INFLATION", "GDP_GROWTH"}]
+            payload, state = cached_official_result(
+                "U.S. Bureau of Economic Analysis",
+                now,
+                lambda: {"results": fetch_bea_actuals(relevant)},
+            )
+            state["url"] = SOURCE_URLS["bea_releases"]
+            state["events"] = len(payload.get("results", {}))
+            states.append(state)
+            enriched = enrich_bea_actuals(enriched, payload.get("results", {}))
+        except Exception as exc:
+            states.append({"source": "U.S. Bureau of Economic Analysis", "status": "ERROR", "events": 0, "url": SOURCE_URLS["bea_releases"], "error": type(exc).__name__})
+
+    return enriched, states
+
+
 def fetch_trading_economics(now: datetime, lookahead_days: int) -> tuple[list[MacroScheduledEvent], dict[str, Any]]:
     key = os.getenv("TRADING_ECONOMICS_API_KEY", "").strip()
     if not key:
@@ -663,6 +1209,13 @@ def fetch_macro_calendar(now_ms_value: int | None = None) -> dict[str, Any]:
         source_states.append({"source": "Cleveland Fed Inflation Nowcasting", "status": "OK", "events": len(forecast_state.get("monthly", [])), "url": SOURCE_URLS["cleveland_nowcast"]})
     except Exception as exc:
         source_states.append({"source": "Cleveland Fed Inflation Nowcasting", "status": "ERROR", "events": 0, "url": SOURCE_URLS["cleveland_nowcast"], "error": type(exc).__name__})
+    try:
+        gdpnow_state = parse_atlanta_gdpnow(fetch_text(SOURCE_URLS["atlanta_gdpnow"]))
+        events = add_gdp_nowcast(events, gdpnow_state)
+        forecast_state["gdpnow"] = gdpnow_state
+        source_states.append({"source": "Atlanta Fed GDPNow", "status": "OK" if gdpnow_state else "NO_DATA", "events": 1 if gdpnow_state else 0, "url": SOURCE_URLS["atlanta_gdpnow"]})
+    except Exception as exc:
+        source_states.append({"source": "Atlanta Fed GDPNow", "status": "ERROR", "events": 0, "url": SOURCE_URLS["atlanta_gdpnow"], "error": type(exc).__name__})
     global _trading_economics_cache
     try:
         if trading_economics_refresh_due(current, events):
@@ -672,7 +1225,7 @@ def fetch_macro_calendar(now_ms_value: int | None = None) -> dict[str, Any]:
             cached_at, te_events, cached_state = _trading_economics_cache
             te_state = {
                 **cached_state,
-                "status": "CACHED",
+                "status": "CACHED" if cached_state.get("status") == "OK" else cached_state.get("status", "CACHED"),
                 "cache_age_seconds": round((current - cached_at).total_seconds()),
             }
         events.extend(te_events)
@@ -681,7 +1234,10 @@ def fetch_macro_calendar(now_ms_value: int | None = None) -> dict[str, Any]:
         source_states.append({"source": "Trading Economics", "status": "ERROR", "events": 0, "url": SOURCE_URLS["trading_economics"], "error": type(exc).__name__})
     start = current - timedelta(minutes=LOOKBACK_MINUTES)
     end = current + timedelta(days=LOOKAHEAD_DAYS)
-    filtered = [event for event in link_fomc_outcomes(dedupe_calendar(events)) if start <= parse_iso(event.event_time_utc) <= end]
+    merged = dedupe_calendar(events)
+    merged, official_states = enrich_official_actuals(merged, current)
+    source_states.extend(official_states)
+    filtered = [event for event in link_fomc_outcomes(merged) if start <= parse_iso(event.event_time_utc) <= end]
     return {
         "engine_id": MACRO_ID,
         "calendar": [event.__dict__ for event in filtered],
@@ -821,11 +1377,18 @@ def evaluate_macro_calendar(
                 int(event_time.timestamp() * 1000),
                 market_klines_by_key,
             )
+        delivery_phase = (
+            f"{phase_name}_REACTION_1H"
+            if phase_name in {"RESULT", "RESULT_PENDING"} and market_impact
+            else phase_name
+        )
         alert = {
-            "event_id": f"{MACRO_ID}:{event_key(item)}:{phase_name}",
+            "event_id": f"{MACRO_ID}:{event_key(item)}:{delivery_phase}",
             "event_type": "MACRO_EVENT",
             "engine_id": MACRO_ID,
             "phase": phase_name,
+            "delivery_phase": delivery_phase,
+            "reaction_status": "AVAILABLE" if market_impact else "PENDING_1H_CLOSE" if phase_name in {"RESULT", "RESULT_PENDING"} else "NOT_DUE",
             "title": item["title"],
             "category": item["category"],
             "priority": item["priority"],
