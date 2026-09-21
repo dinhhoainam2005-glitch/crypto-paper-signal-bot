@@ -19,6 +19,8 @@ import r53a_tardis_microstructure_probe as r53a  # noqa: E402
 import r53b_tardis_liquidation_samples as r53b  # noqa: E402
 import r53c_liquidation_event_study as r53c  # noqa: E402
 import r53d_liquidation_book_confirmation as r53d  # noqa: E402
+import r54a_deribit_dvol_audit as r54a  # noqa: E402
+import r54b_dvol_regime_interaction as r54b  # noqa: E402
 
 
 def write_gzip_csv(path: Path, text: str) -> None:
@@ -176,6 +178,102 @@ class R53ResearchTests(unittest.TestCase):
             }
         )
         self.assertEqual(r53d.confirmation_mask(frame).tolist(), [True] * 4)
+
+    def test_r54a_api_url_is_public_daily_dvol(self) -> None:
+        url = r54a.api_url("BTC", 1, 2)
+        self.assertIn("public/get_volatility_index_data", url)
+        self.assertIn("currency=BTC", url)
+        self.assertIn("resolution=1D", url)
+        with self.assertRaises(ValueError):
+            r54a.api_url("SOL", 1, 2)
+
+    def test_r54a_daily_data_is_available_next_day(self) -> None:
+        frame = r54a.rows_to_frame(
+            [[1616544000000, 80.0, 85.0, 75.0, 82.0]], "BTC"
+        )
+        self.assertEqual(
+            frame.iloc[0]["available_at"],
+            frame.iloc[0]["bar_open"] + pd.Timedelta(days=1),
+        )
+
+    def test_r54a_pagination_deduplicates_boundary_rows(self) -> None:
+        pages = iter(
+            [
+                {
+                    "data": [
+                        [1616630400000, 81.0, 86.0, 76.0, 83.0],
+                        [1616716800000, 82.0, 87.0, 77.0, 84.0],
+                    ],
+                    "continuation": 1616630399999,
+                },
+                {
+                    "data": [
+                        [1616544000000, 80.0, 85.0, 75.0, 82.0],
+                        [1616630400000, 81.0, 86.0, 76.0, 83.0],
+                    ]
+                },
+            ]
+        )
+
+        def fake_fetch(currency: str, start_ms: int, end_ms: int) -> dict:
+            self.assertEqual(currency, "BTC")
+            self.assertLessEqual(start_ms, end_ms)
+            return next(pages)
+
+        frame = r54a.download_currency(
+            "BTC",
+            pd.Timestamp("2021-03-24", tz="UTC"),
+            pd.Timestamp("2021-03-26", tz="UTC"),
+            fetcher=fake_fetch,
+            sleep_seconds=0.0,
+        )
+        self.assertEqual(len(frame), 3)
+        self.assertFalse(frame["bar_open"].duplicated().any())
+
+    def test_r54b_assigns_only_available_dvol(self) -> None:
+        trades = pd.DataFrame(
+            {
+                "symbol": ["BTCUSDT", "BTCUSDT"],
+                "signal_time": pd.to_datetime(
+                    ["2021-03-25 00:00", "2021-03-25 23:00"], utc=True
+                ),
+                "entry_time": pd.to_datetime(
+                    ["2021-03-25 00:00", "2021-03-25 23:00"], utc=True
+                ),
+                "exit_time": pd.to_datetime(
+                    ["2021-03-25 01:00", "2021-03-26 00:00"], utc=True
+                ),
+                "side": ["LONG", "SHORT"],
+            }
+        )
+        dvol = pd.DataFrame(
+            {
+                "currency": ["BTC", "BTC"],
+                "bar_open": pd.to_datetime(["2021-03-24", "2021-03-25"], utc=True),
+                "available_at": pd.to_datetime(["2021-03-25", "2021-03-26"], utc=True),
+                "close": [80.0, 90.0],
+                "dvol_median_60d": [70.0, 75.0],
+                "dvol_change_5d": [0.1, 0.2],
+                "dvol_currency": ["BTC", "BTC"],
+            }
+        )
+        joined = r54b.attach_causal_dvol(trades, dvol)
+        self.assertEqual(joined["dvol_close"].tolist(), [80.0, 80.0])
+        self.assertTrue((joined["available_at"] <= joined["signal_time"]).all())
+
+    def test_r54b_fixed_masks_are_direction_agnostic(self) -> None:
+        frame = pd.DataFrame(
+            {
+                "side": ["LONG", "SHORT", "LONG", "SHORT"],
+                "dvol_close": [80.0, 80.0, 60.0, 60.0],
+                "dvol_median_60d": [70.0, 70.0, 70.0, 70.0],
+                "dvol_change_5d": [0.1, 0.1, -0.1, -0.1],
+            }
+        )
+        breakout = r54b.apply_fixed_mask(frame, "BREAKOUT_CONTINUATION")
+        reversal = r54b.apply_fixed_mask(frame, "MEAN_REVERSION")
+        self.assertEqual(breakout["side"].tolist(), ["LONG", "SHORT"])
+        self.assertEqual(reversal["side"].tolist(), ["LONG", "SHORT"])
 
 
 if __name__ == "__main__":
