@@ -94,18 +94,45 @@ handling and storage size. R53A cannot pass any profitability gate.
 Acquire continuous event data only after R53A passes. Audit gaps, incidents,
 clock ordering and symbol availability before feature generation.
 
-### R53C - Sleeve research
+Before purchase, R53B may collect the provider's free day-01 monthly
+liquidation samples for a sparse feasibility panel. Those samples may reject a
+hypothesis but cannot pass a full-history promotion gate.
+
+### R53C - Frozen liquidation sample rules
+
+The first sparse-panel screen uses one 12-hour holding period and four fixed
+rules. Every rule requires liquidation notional of at least 0.20% of hourly
+quote volume, at least 75% of liquidation notional on one side, non-negative
+prior-window volume z-score and an absolute signal-candle move of at least
+0.50%. Continuation additionally requires taker imbalance of at least 0.05 in
+the trade direction and a close in the outer 40% of the candle. Reversal
+requires a close in the opposite outer 35% after the forced-flow burst.
+
+Each rule must independently pass PF20 and minimum-count checks in development
+(2020-2023), validation (2024) and the locked 2025-July 2026 diagnostic before
+continuous paid history is considered.
+
+### R53D - OI and order-book interaction
+
+If the sparse liquidation-only rules do not pass, one pre-registered interaction
+test is permitted on verified 2023+ data. Continuation requires falling OI plus
+same-direction top-1 book depletion; reversal requires falling OI plus opposing
+top-1 absorption. Raw signs are fixed at zero and may not be tuned. A rule needs
+at least 8/5/8 confirmed trades and PF20 of at least 1.10 in 2023 development,
+2024 validation and 2025-July 2026 locked diagnostic respectively.
+
+### R53E - Sleeve research
 
 Run the five frozen hypotheses with bounded parameter grids and walk-forward
 selection. Reject any sleeve that fails PF20, direction, timeframe or regime
 stability on validation.
 
-### R53D - Portfolio replay
+### R53F - Portfolio replay
 
 Combine only independently accepted sleeves, reproduce runtime signals exactly,
 then evaluate the unchanged R31A 15 checks once on the locked historical test.
 
-### R53E - Paper forward
+### R53G - Paper forward
 
 Even a historical 15/15 result only unlocks accelerated paper review. It does
 not authorize automatic or large real-money trading.
