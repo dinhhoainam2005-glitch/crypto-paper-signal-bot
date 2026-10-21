@@ -10,6 +10,8 @@ from datetime import datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
+from .decision_support import HISTORICAL_REFERENCE, forward_assessment
+
 
 VIETNAM = ZoneInfo("Asia/Ho_Chi_Minh")
 
@@ -41,6 +43,22 @@ def source_summary(scan: dict[str, Any]) -> tuple[int, int]:
     return trusted, fallback
 
 
+def quality_display(value: Any) -> str:
+    label = str(value or "V7 STANDARD")
+    if label in {"A+ CROSS-MARKET", "A_PLUS_CROSS_MARKET"}:
+        return "XÁC NHẬN CHÉO"
+    return label
+
+
+def readiness_display(band: Any) -> tuple[str, str]:
+    return {
+        "TESTING": ("🔴", "ĐANG CHẠM NGƯỠNG"),
+        "NEAR": ("🟠", "GẦN"),
+        "WATCH": ("🟡", "THEO DÕI"),
+        "WAIT": ("⚪", "CÒN XA"),
+    }.get(str(band), ("⚪", "CHƯA RÕ"))
+
+
 def format_startup(scan: dict[str, Any]) -> str:
     ready = sum(group.get("status") == "READY" for group in scan.get("groups", []))
     trusted, fallback = source_summary(scan)
@@ -52,7 +70,8 @@ def format_startup(scan: dict[str, Any]) -> str:
             "📊 Thị trường: <b>BTC / ETH / SOL / BNB</b> | Khung: <b>1D</b>",
             "↕️ Hướng: <b>LONG + SHORT</b> | Quét: <b>mỗi 1 phút</b>",
             "🎯 Kế hoạch: <b>Entry + SL + TP1/TP2/TP3 + giữ tối đa 90 ngày</b>",
-            "💎 Phân tầng: <b>V7 STANDARD</b> | <b>A+ khi ≥2 coin cùng kỳ xác nhận</b>",
+            "🧭 Phân tầng: <b>STANDARD</b> | <b>XÁC NHẬN CHÉO khi ≥2 coin</b>",
+            "⚠️ Tín hiệu cùng kỳ là một cụm tương quan, không phải các cược độc lập.",
             "🧭 MTF 1h/4h: <b>CHỈ BỐI CẢNH / KHÔNG TỰ SINH LỆNH</b>",
             f"🧾 Nguồn Binance Futures xác minh: <b>{trusted}/4</b>",
             f"📂 Vị thế đang mở: <b>{len(active)}</b>",
@@ -88,7 +107,7 @@ def format_signal(signal: dict[str, Any]) -> str:
     action = "LONG (MUA)" if is_long else "SHORT (BÁN)"
     quality_tier = signal.get("quality_tier", "STANDARD")
     is_cross_market = quality_tier == "A_PLUS_CROSS_MARKET"
-    quality_label = "A+ CROSS-MARKET" if is_cross_market else "V7 STANDARD"
+    quality_label = "XÁC NHẬN CHÉO" if is_cross_market else "V7 STANDARD"
     quality_icon = "💎" if is_cross_market else "📘"
     confirmations = ", ".join(
         symbol.replace("USDT", "")
@@ -100,8 +119,9 @@ def format_signal(signal: dict[str, Any]) -> str:
             "━━━━━━━━━━━━━━━━━━━━━━━━",
             "✅ <b>TÍN HIỆU PAPER-FORWARD HỢP LỆ</b>",
             f"⏱️ Khung: <b>1D</b> | Hướng: <b>{action}</b>",
-            f"{quality_icon} Chất lượng: <b>{quality_label}</b>",
+            f"{quality_icon} Phân loại: <b>{quality_label}</b>",
             f"• Xác nhận chéo: <b>{signal.get('cross_market_count', 1)}/4</b> | {esc(confirmations)}",
+            "• Nhãn xác nhận chéo dựa trên lịch sử; forward hiện chưa đủ mẫu.",
             "• MTF 1h/4h: <b>chỉ bối cảnh, không tạo lệnh</b>",
             "",
             "📍 <b>KẾ HOẠCH GIÁ</b>",
@@ -115,6 +135,8 @@ def format_signal(signal: dict[str, Any]) -> str:
             "🛡️ <b>QUẢN TRỊ</b>",
             "• Rủi ro mô hình: <code>0.35% vốn</code>",
             f"• Quy mô danh nghĩa: <code>{100.0 * signal.get('notional_fraction_allocated', 0.0):.2f}% vốn</code>",
+            f"• Rủi ro cả cụm nếu vào đủ: <code>{0.35 * signal.get('cross_market_count', 1):.2f}% vốn</code>",
+            "• Các coin cùng cụm có tương quan; không cộng chúng như cơ hội độc lập.",
             "• Sau TP1: dời SL về hòa vốn | Sau TP2: dời SL lên TP1",
             "• Thoát sớm: đóng ngày phá kênh Donchian 20 ngày ngược hướng",
             "• Giữ tối đa: <b>90 ngày</b> | Rà soát: <b>mỗi ngày</b>",
@@ -149,7 +171,7 @@ def format_position_event(event: dict[str, Any]) -> str:
             f"📌 <b>CORE4 V7 — {esc(reason)}</b>",
             "━━━━━━━━━━━━━━━━━━━━━━━━",
             f"• {esc(event['symbol'])} | <b>{esc(event['side'])}</b>",
-            f"• Tầng: <b>{esc(event.get('quality_label', 'V7 STANDARD'))}</b>",
+            f"• Tầng: <b>{esc(quality_display(event.get('quality_label')))}</b>",
             f"• Giá: <code>{price(event['price'])}</code>",
             f"• Vị thế còn lại: <code>{100.0 * event['remaining_fraction']:.1f}%</code>",
             f"• Thời gian: {esc(display_time(event['time_utc']))}",
@@ -167,7 +189,7 @@ def format_trade_closed(trade: dict[str, Any]) -> str:
             f"{icon} <b>CORE4 V7 — ĐÃ ĐÓNG {esc(trade['symbol'])} {esc(trade['side'])}</b>",
             "━━━━━━━━━━━━━━━━━━━━━━━━",
             f"• Kết quả: <b>{result}</b> | <code>{trade['realized_r']:+.3f}R</code>",
-            f"• Tầng: <b>{esc(trade.get('quality_label', 'V7 STANDARD'))}</b>",
+            f"• Tầng: <b>{esc(quality_display(trade.get('quality_label')))}</b>",
             f"• Entry: <code>{price(trade['entry'])}</code> | Exit: <code>{price(trade['exit_price'])}</code>",
             f"• Lý do: <code>{esc(trade['exit_reason'])}</code>",
             f"• Thời gian giữ: <code>{trade['holding_hours'] / 24.0:.1f} ngày</code>",
@@ -203,30 +225,46 @@ def format_heartbeat(scan: dict[str, Any], state: dict[str, Any]) -> str:
     trusted, fallback = source_summary(scan)
     count, win_rate, pf, mean_r = performance(state)
     standard_count, standard_win, standard_pf, _ = performance(state, "STANDARD")
-    aplus_count, aplus_win, aplus_pf, _ = performance(
+    confirmed_count, confirmed_win, confirmed_pf, _ = performance(
         state, "A_PLUS_CROSS_MARKET"
     )
+    forward = forward_assessment(state)
     pf_label = f"{pf:.2f}" if math.isfinite(pf) else "∞"
     standard_pf_label = f"{standard_pf:.2f}" if math.isfinite(standard_pf) else "∞"
-    aplus_pf_label = f"{aplus_pf:.2f}" if math.isfinite(aplus_pf) else "∞"
+    confirmed_pf_label = f"{confirmed_pf:.2f}" if math.isfinite(confirmed_pf) else "∞"
     active = state.get("active_positions", [])
     standard_open = sum(
         position.get("quality_tier", "STANDARD") == "STANDARD"
         for position in active
     )
-    aplus_open = sum(
+    confirmed_open = sum(
         position.get("quality_tier") == "A_PLUS_CROSS_MARKET"
         for position in active
     )
+    forward_status = {
+        "INSUFFICIENT_SAMPLE_CURRENTLY_WEAK": "CHƯA ĐỦ MẪU / ĐANG YẾU",
+        "INSUFFICIENT_SAMPLE": "CHƯA ĐỦ MẪU",
+        "PRELIMINARY_PASS": "SƠ BỘ ĐẠT",
+        "BELOW_FORWARD_GATE": "DƯỚI CHUẨN FORWARD",
+    }.get(forward["status"], forward["status"])
+    cluster_pf = forward["profit_factor"]
+    cluster_pf_label = f"{cluster_pf:.2f}" if math.isfinite(cluster_pf) else "∞"
     lines = [
             "💓💎 <b>CORE4 V7 PAPER-FORWARD — BÁO SỐNG</b>",
             "━━━━━━━━━━━━━━━━━━━━━━━━",
             f"✅ Hệ thống: <b>{'ỔN' if scan.get('status') == 'OK' else 'SUY GIẢM'}</b> | Dữ liệu: <b>{ready}/4</b>",
             f"📂 Vị thế mở: <b>{len(state.get('active_positions', []))}</b> | Đã đóng: <b>{count}</b>",
             f"📈 Forward: Win <code>{win_rate:.1%}</code> | PF <code>{pf_label}</code> | Mean <code>{mean_r:+.3f}R</code>",
-            f"💎 A+ chéo: mở <b>{aplus_open}</b> | đóng <b>{aplus_count}</b> | Win <code>{aplus_win:.1%}</code> | PF <code>{aplus_pf_label}</code>",
+            f"💎 Xác nhận chéo: mở <b>{confirmed_open}</b> | đóng <b>{confirmed_count}</b> | Win <code>{confirmed_win:.1%}</code> | PF <code>{confirmed_pf_label}</code>",
             f"📘 Standard: mở <b>{standard_open}</b> | đóng <b>{standard_count}</b> | Win <code>{standard_win:.1%}</code> | PF <code>{standard_pf_label}</code>",
             f"💰 Equity paper: <code>{float(state.get('equity', 1.0)):.4f}</code>",
+            f"🧪 Forward theo cụm: <b>{forward_status}</b> | n=<code>{forward['clusters']}</code> | Win <code>{forward['win_rate']:.1%}</code> | PF <code>{cluster_pf_label}</code>",
+            "📚 OOS lịch sử: <code>{trades} lệnh</code> | Win <code>{win:.1%}</code> | PF <code>{pf:.2f}</code> | Sharpe <code>{sharpe:.2f}</code>".format(
+                trades=HISTORICAL_REFERENCE["trades"],
+                win=HISTORICAL_REFERENCE["win_rate"],
+                pf=HISTORICAL_REFERENCE["profit_factor"],
+                sharpe=HISTORICAL_REFERENCE["sharpe"],
+            ),
     ]
     for position in active[:3]:
         lines.append(
@@ -239,27 +277,35 @@ def format_heartbeat(scan: dict[str, Any], state: dict[str, Any]) -> str:
             )
         )
     diagnostics = [
-        group
-        for group in scan.get("groups", [])
-        if group.get("distance_to_long_breakout_pct") is not None
+        group for group in scan.get("groups", []) if group.get("readiness_band")
     ]
     if diagnostics:
-        nearest = min(
-            diagnostics,
-            key=lambda group: abs(float(group["distance_to_long_breakout_pct"])),
-        )
-        distance = float(nearest["distance_to_long_breakout_pct"])
-        if distance > 0.0:
-            proximity = f"còn {distance:.2f}%"
-        else:
-            proximity = "đang vượt ngưỡng, chờ đóng nến 1D"
+        regime = diagnostics[0].get("actionable_side", "n/a")
         lines.append(
-            "🎯 Gần LONG nhất: <b>{symbol}</b> {proximity} tới <code>{trigger}</code>".format(
-                symbol=esc(nearest["symbol"].replace("USDT", "")),
-                proximity=esc(proximity),
-                trigger=price(nearest["long_breakout_trigger"]),
+            "🧭 Kịch bản 1D dự kiến: <b>{side}</b> | BTC <code>{close}</code> vs SMA200 <code>{sma}</code>".format(
+                side=esc(regime),
+                close=price(diagnostics[0]["projected_btc_close"]),
+                sma=price(diagnostics[0]["projected_btc_sma200"]),
             )
         )
+        for group in diagnostics:
+            icon, label = readiness_display(group["readiness_band"])
+            distance = float(group["actionable_distance_pct"])
+            distance_label = (
+                "đã xuyên intraday"
+                if distance <= 0.0
+                else f"còn {distance:.2f}%"
+            )
+            lines.append(
+                "{icon} {symbol} <b>{label}</b> {side} | {distance} → <code>{trigger}</code>".format(
+                    icon=icon,
+                    symbol=esc(group["symbol"].replace("USDT", "")),
+                    label=esc(label),
+                    side=esc(group["actionable_side"]),
+                    distance=esc(distance_label),
+                    trigger=price(group["actionable_trigger"]),
+                )
+            )
     lines.extend(
         [
             f"🧾 Nguồn Futures xác minh: <b>{trusted}/4</b> | Spot fallback: <b>{fallback}/4</b>",
@@ -273,6 +319,47 @@ def format_heartbeat(scan: dict[str, Any], state: dict[str, Any]) -> str:
         lines.insert(-3, "⚠️ <b>TRADE BỊ KHÓA KHI NGUỒN FUTURES CHƯA ĐẠT</b>")
     if scan.get("status") != "OK" and scan.get("errors"):
         lines.insert(-3, f"⚠️ Dữ liệu: <code>{esc(str(scan['errors'][0])[:140])}</code>")
+    return "\n".join(lines)
+
+
+def format_readiness_alert(event: dict[str, Any]) -> str:
+    headline = (
+        "ĐỔI CHẾ ĐỘ THỊ TRƯỜNG"
+        if event.get("regime_changed")
+        else "GIÁ ĐANG TIẾN GẦN NGƯỠNG V7"
+    )
+    lines = [
+        f"🎯📡 <b>CORE4 V7 — {headline}</b>",
+        "━━━━━━━━━━━━━━━━━━━━━━━━",
+        "👀 <b>CẢNH BÁO THEO DÕI / CHƯA PHẢI LỆNH TRADE</b>",
+    ]
+    for market in event.get("markets", []):
+        icon, label = readiness_display(market.get("band"))
+        distance = float(market.get("distance_pct", 0.0))
+        distance_label = "đã xuyên intraday" if distance <= 0.0 else f"còn {distance:.2f}%"
+        lines.append(
+            "{icon} {symbol} <b>{label}</b> {side} | {distance} → <code>{trigger}</code>".format(
+                icon=icon,
+                symbol=esc(str(market.get("symbol", "")).replace("USDT", "")),
+                label=esc(label),
+                side=esc(market.get("side")),
+                distance=esc(distance_label),
+                trigger=price(market.get("trigger")),
+            )
+        )
+    decision = next(
+        (market.get("next_decision_utc") for market in event.get("markets", []) if market.get("next_decision_utc")),
+        None,
+    )
+    if decision:
+        lines.append(f"🕯️ Xác nhận chính thức khi nến 1D đóng: {esc(display_time(decision))}")
+    lines.extend(
+        [
+            "⚠️ Không vào sớm chỉ vì cảnh báo này; V7 chỉ tạo lệnh sau đóng nến 1D.",
+            f"🕒 {esc(display_time(event['time_utc']))}",
+            "🔒 <b>PAPER ONLY / KHÔNG TỰ ĐẶT LỆNH</b>",
+        ]
+    )
     return "\n".join(lines)
 
 

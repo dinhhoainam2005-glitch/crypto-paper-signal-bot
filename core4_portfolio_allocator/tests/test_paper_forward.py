@@ -28,6 +28,12 @@ from core4_portfolio_allocator.paper_forward.config import (
     load_locked_spec,
     spec_sha256,
 )
+from core4_portfolio_allocator.paper_forward.decision_support import (
+    annotate_market_readiness,
+    cluster_performance,
+    readiness_band,
+    update_readiness_state,
+)
 from core4_portfolio_allocator.paper_forward.engine import (
     DAY_MS,
     ForwardEngine,
@@ -43,6 +49,7 @@ from core4_portfolio_allocator.paper_forward.futures_stream import (
 from core4_portfolio_allocator.paper_forward.state import ForwardStore
 from core4_portfolio_allocator.paper_forward.telegram import (
     format_heartbeat,
+    format_readiness_alert,
     format_signal,
     format_startup,
 )
@@ -401,6 +408,12 @@ class PaperForwardTests(unittest.TestCase):
                     "source_trusted": True,
                     "distance_to_long_breakout_pct": 2.35,
                     "long_breakout_trigger": 82_282.8,
+                    "projected_btc_close": 80_400.0,
+                    "projected_btc_sma200": 75_000.0,
+                    "actionable_side": "LONG",
+                    "actionable_trigger": 82_282.8,
+                    "actionable_distance_pct": 2.35,
+                    "readiness_band": "NEAR",
                 },
                 *[
                     {
@@ -644,8 +657,71 @@ class PaperForwardTests(unittest.TestCase):
             "directional_chase_bps": 0.0,
             "notional_fraction_allocated": 0.1,
         })
-        self.assertIn("A+ CROSS-MARKET", text)
+        self.assertIn("XÁC NHẬN CHÉO", text)
         self.assertIn("BTC, ETH", text)
+
+    def test_readiness_playbook_and_alert_are_watch_only(self) -> None:
+        markets = daily_series("LONG")
+        completed = markets["BTCUSDT"][:-1]
+        current = markets["BTCUSDT"][-1]
+        groups = [
+            {
+                "symbol": "BTCUSDT",
+                "current_price": current.close,
+                "long_breakout_trigger": current.close * 1.02,
+                "short_breakout_trigger": current.close * 0.80,
+                "distance_to_long_breakout_pct": 2.0,
+                "distance_to_short_breakout_pct": 25.0,
+            }
+        ]
+        annotate_market_readiness(groups, completed, current)
+        self.assertEqual(groups[0]["actionable_side"], "LONG")
+        self.assertEqual(groups[0]["readiness_band"], "NEAR")
+        self.assertEqual(readiness_band(-0.1), "TESTING")
+
+        state = {
+            "market_readiness": {
+                "BTCUSDT": {
+                    "side": "LONG",
+                    "band": "WATCH",
+                    "distance_pct": 5.0,
+                }
+            }
+        }
+        event = update_readiness_state(state, groups, current.open_time_ms)
+        self.assertIsNotNone(event)
+        assert event is not None
+        self.assertEqual(event["reason"], "READINESS_ALERT")
+        text = format_readiness_alert(event)
+        self.assertIn("CHƯA PHẢI LỆNH TRADE", text)
+        self.assertIn("BTC", text)
+        self.assertIn("GẦN", text)
+
+    def test_cluster_performance_does_not_count_correlated_entries_as_independent(self) -> None:
+        state = {
+            "closed_trades": [
+                {
+                    "entry_time_utc": "2026-09-22T00:00:00+00:00",
+                    "symbol": symbol,
+                    "net_pnl": -0.0035,
+                    "initial_risk_cash": 0.0035,
+                }
+                for symbol in ("BTCUSDT", "ETHUSDT", "BNBUSDT")
+            ]
+            + [
+                {
+                    "entry_time_utc": "2026-09-19T00:00:00+00:00",
+                    "symbol": "SOLUSDT",
+                    "net_pnl": 0.0005,
+                    "initial_risk_cash": 0.0035,
+                }
+            ]
+        }
+        metrics = cluster_performance(state)
+        self.assertEqual(metrics["trades"], 4)
+        self.assertEqual(metrics["clusters"], 2)
+        self.assertEqual(metrics["multi_symbol_clusters"], 1)
+        self.assertEqual(metrics["win_rate"], 0.5)
 
 
 if __name__ == "__main__":

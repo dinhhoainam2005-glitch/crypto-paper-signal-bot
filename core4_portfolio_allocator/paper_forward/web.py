@@ -11,11 +11,13 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from .config import RuntimeConfig, spec_sha256
+from .decision_support import decision_support_payload, forward_assessment
 from .engine import ForwardEngine
 from .telegram import (
     TelegramSender,
     format_heartbeat,
     format_position_event,
+    format_readiness_alert,
     format_signal,
     format_startup,
     format_trade_closed,
@@ -72,6 +74,8 @@ def scan_and_notify(startup: bool = False, force_heartbeat: bool = False) -> dic
                 continue
             if item.get("reason") == "TRADE_CLOSED":
                 text = format_trade_closed(item["trade"])
+            elif item.get("reason") == "READINESS_ALERT":
+                text = format_readiness_alert(item)
             elif item.get("reason"):
                 if item.get("signal_id") in closed_signal_ids and item.get("remaining_fraction", 1.0) <= 1e-12:
                     continue
@@ -150,6 +154,8 @@ def health_payload(state: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         "scan_stale_after_seconds": stale_after,
         "background_scan_enabled": BACKGROUND_SCAN_ENABLED,
         "background_thread_alive": thread_alive,
+        "decision_support_endpoint": "/analysis",
+        "performance_endpoint": "/performance",
     }
     return payload, healthy
 
@@ -191,7 +197,13 @@ class Handler(BaseHTTPRequestHandler):
                     "equity": state.get("equity", 1.0),
                     "cash": state.get("cash", 1.0),
                     "closed_trades": state.get("closed_trades", []),
+                    "summary": forward_assessment(state),
                 }
+            )
+            return
+        if parsed.path == "/analysis":
+            self.send_json(
+                decision_support_payload(state.get("last_scan", {}), state)
             )
             return
         if parsed.path == "/spec":

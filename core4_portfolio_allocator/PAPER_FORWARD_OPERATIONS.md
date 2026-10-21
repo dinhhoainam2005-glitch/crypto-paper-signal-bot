@@ -48,9 +48,17 @@ shows the verified Futures and fallback counts explicitly.
 - One heartbeat per hour.
 - Immediate paper Entry, TP1, TP2, TP3, SL/channel/max-hold, and final-close
   messages.
+- Watch-only readiness alert when a market first moves within 10%, 3%, or
+  intraday through the V7 trigger, or when the projected BTC/SMA200 regime
+  changes. These alerts never create a position before the 1D close.
+- Heartbeats include the four-market 1D playbook, historical reference, and
+  forward results grouped by correlated entry cluster.
 - Stale and chased candidates are recorded but silent by default.
 - Every entry includes Entry, SL, TP1, TP2, TP3, risk, validity timing, review
   interval, and 90-day maximum hold.
+
+Decision support is available as JSON at `/analysis`. `/performance` includes
+the same cluster-level forward summary alongside the original trade ledger.
 
 ## Safety
 

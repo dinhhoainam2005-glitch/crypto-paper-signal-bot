@@ -13,6 +13,7 @@ from .clients import (
     market_client_from_env,
 )
 from .config import RuntimeConfig, load_locked_spec, spec_sha256
+from .decision_support import annotate_market_readiness, update_readiness_state
 from .state import ForwardStore, now_iso
 
 
@@ -543,6 +544,11 @@ class ForwardEngine:
                 except Exception as exc:
                     errors.append(f"{symbol} daily: {type(exc).__name__}: {exc}")
                     groups.append({"symbol": symbol, "status": "ERROR", "completed_bars": 0})
+            if "BTCUSDT" in daily_by_symbol:
+                btc_completed, btc_current = completed_and_current(
+                    daily_by_symbol["BTCUSDT"], now_ms
+                )
+                annotate_market_readiness(groups, btc_completed, btc_current)
             if len(daily_by_symbol) != len(self.symbols):
                 state["last_scan_utc"] = utc_iso(now_ms)
                 state["scan_count"] = int(state.get("scan_count", 0)) + 1
@@ -713,6 +719,10 @@ class ForwardEngine:
                 if group.get("status") == "SOURCE_MISMATCH"
             ]
             status = "OK" if not errors and not source_mismatches else "DEGRADED"
+            if status == "OK":
+                readiness_event = update_readiness_state(state, groups, now_ms)
+                if readiness_event is not None:
+                    notifications.append(readiness_event)
             scan = {
                 "status": status,
                 "time_utc": utc_iso(now_ms),
