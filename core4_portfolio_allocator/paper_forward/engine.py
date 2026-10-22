@@ -34,6 +34,13 @@ MAX_INITIAL_GROSS = 0.60
 CROSS_MARKET_MIN_CONFIRMATIONS = 2
 QUALITY_STANDARD = "STANDARD"
 QUALITY_CROSS_MARKET = "A_PLUS_CROSS_MARKET"
+V17_STRATEGY_ID = "CORE4_V17_ALT_FAST_CONFIRMED_DAILY"
+V17_ENTRY_CHANNEL = 20
+V17_EXIT_CHANNEL = 10
+V17_TRADABLE_SYMBOLS = ("BNBUSDT", "SOLUSDT")
+V17_RISK_PER_TRADE = RISK_PER_TRADE * 0.30
+V17_MAX_SYMBOL_NOTIONAL = MAX_SYMBOL_NOTIONAL * 0.30
+V17_MAX_INITIAL_GROSS = MAX_INITIAL_GROSS * 0.30
 
 
 def utc_iso(milliseconds: int) -> str:
@@ -143,6 +150,117 @@ def evaluate_candidate(
     }
 
 
+def evaluate_v17_candidate(
+    symbol: str,
+    daily_by_symbol: dict[str, list[Candle]],
+    now_ms: int,
+) -> dict[str, Any] | None:
+    """Evaluate the frozen V17 fast hypothesis without changing V7."""
+    completed, current = completed_and_current(daily_by_symbol[symbol], now_ms)
+    btc_completed, _ = completed_and_current(daily_by_symbol["BTCUSDT"], now_ms)
+    if len(completed) < max(V17_ENTRY_CHANNEL + 1, ATR_DAYS + 1) or len(btc_completed) < SMA_DAYS:
+        return None
+    decision = completed[-1]
+    if current is None or current.open_time_ms != decision.open_time_ms + DAY_MS:
+        return None
+    prior = completed[-(V17_ENTRY_CHANNEL + 1) : -1]
+    entry_high = max(candle.high for candle in prior)
+    entry_low = min(candle.low for candle in prior)
+    side = None
+    if decision.close > entry_high:
+        side = "LONG"
+    elif decision.close < entry_low:
+        side = "SHORT"
+    if side is None:
+        return None
+    btc_sma = sum(candle.close for candle in btc_completed[-SMA_DAYS:]) / SMA_DAYS
+    btc_close = btc_completed[-1].close
+    if side == "LONG" and not btc_close > btc_sma:
+        return None
+    if side == "SHORT" and not btc_close < btc_sma:
+        return None
+    atr = sum(true_ranges(completed)[-ATR_DAYS:]) / ATR_DAYS
+    distance = ATR_MULTIPLIER * atr
+    entry = current.open
+    sign = 1.0 if side == "LONG" else -1.0
+    if not math.isfinite(distance) or distance <= 0.0 or distance >= entry:
+        return None
+    targets = tuple(entry + sign * multiple * distance for multiple in TP_R)
+    if min(targets) <= 0.0:
+        return None
+    generated = datetime.fromtimestamp(current.open_time_ms / 1000.0, tz=timezone.utc)
+    plan = TradePlan(
+        symbol=symbol,
+        side=side,
+        timeframe="1d",
+        generated_at_utc=generated,
+        entry=entry,
+        stop_loss=entry - sign * distance,
+        take_profit_1=targets[0],
+        take_profit_2=targets[1],
+        take_profit_3=targets[2],
+        invalid_after_utc=datetime.fromtimestamp(
+            (current.open_time_ms + DAY_MS) / 1000.0, tz=timezone.utc
+        ),
+        max_holding_hours=MAX_HOLD_HOURS,
+        review_interval_hours=24,
+        capital_at_risk_fraction=V17_RISK_PER_TRADE,
+        early_exit_condition="Dong cua ngay cat kenh Donchian 10 ngay nguoc huong",
+        paper_only=True,
+    )
+    plan.validate()
+    risk_fraction = distance / entry
+    return {
+        "signal_id": f"CORE4V17:{symbol}:{side}:{decision.open_time_ms}",
+        "strategy_id": V17_STRATEGY_ID,
+        "signal_time_utc": utc_iso(decision.close_time_ms),
+        "signal_close_ms": decision.close_time_ms,
+        "entry_time_ms": current.open_time_ms,
+        "entry_time_utc": utc_iso(current.open_time_ms),
+        "entry_high": entry_high,
+        "entry_low": entry_low,
+        "btc_close": btc_close,
+        "btc_sma200": btc_sma,
+        "atr20": atr,
+        "notional_fraction_requested": min(
+            V17_MAX_SYMBOL_NOTIONAL, V17_RISK_PER_TRADE / risk_fraction
+        ),
+        "exit_channel": V17_EXIT_CHANNEL,
+        "quality_tier": "V17_SHADOW",
+        "quality_label": "V17 SHADOW",
+        "shadow_only": True,
+        "plan": plan.as_payload(),
+        "status": "CANDIDATE",
+        "paper_only": True,
+    }
+
+
+def qualify_v17_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Require two same-side CORE4 breakouts, then retain only BNB/SOL."""
+    peers: dict[tuple[int, str], list[str]] = {}
+    for candidate in candidates:
+        key = (int(candidate["entry_time_ms"]), str(candidate["plan"]["side"]))
+        peers.setdefault(key, []).append(str(candidate["plan"]["symbol"]))
+    qualified: list[dict[str, Any]] = []
+    for candidate in candidates:
+        key = (int(candidate["entry_time_ms"]), str(candidate["plan"]["side"]))
+        symbols = sorted(set(peers[key]))
+        if (
+            len(symbols) >= CROSS_MARKET_MIN_CONFIRMATIONS
+            and candidate["plan"]["symbol"] in V17_TRADABLE_SYMBOLS
+        ):
+            candidate.update(
+                cross_market_count=len(symbols),
+                cross_market_threshold=CROSS_MARKET_MIN_CONFIRMATIONS,
+                cross_market_symbols=symbols,
+                portfolio_risk_count=sum(
+                    symbol in V17_TRADABLE_SYMBOLS for symbol in symbols
+                ),
+            )
+            qualified.append(candidate)
+    return qualified
+
+
 def classify_cross_market_candidates(
     candidates: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -174,10 +292,11 @@ def opposite_channel_exit(
 ) -> bool:
     index_by_time = {candle.open_time_ms: index for index, candle in enumerate(daily)}
     index = index_by_time.get(decision_open_ms)
-    if index is None or index < EXIT_CHANNEL:
+    exit_channel = int(position.get("exit_channel", EXIT_CHANNEL))
+    if index is None or index < exit_channel:
         return False
     decision = daily[index]
-    prior = daily[index - EXIT_CHANNEL : index]
+    prior = daily[index - exit_channel : index]
     if position["side"] == "LONG":
         return decision.close < min(candle.low for candle in prior)
     return decision.close > max(candle.high for candle in prior)
@@ -190,6 +309,9 @@ def new_position(signal: dict[str, Any], equity: float, notional_fraction: float
     risk_cash = quantity * abs(float(plan["entry"]) - float(plan["stop_loss"]))
     return {
         "signal_id": signal["signal_id"],
+        "strategy_id": signal.get("strategy_id", "CORE4_V7_BETA_REGIME_DONCHIAN"),
+        "shadow_only": bool(signal.get("shadow_only", False)),
+        "exit_channel": int(signal.get("exit_channel", EXIT_CHANNEL)),
         "quality_tier": signal.get("quality_tier", QUALITY_STANDARD),
         "quality_label": signal.get("quality_label", "V7 STANDARD"),
         "cross_market_count": int(signal.get("cross_market_count", 1)),
@@ -252,6 +374,8 @@ def _fill(
         "side": position["side"],
         "quality_tier": position.get("quality_tier", QUALITY_STANDARD),
         "quality_label": position.get("quality_label", "V7 STANDARD"),
+        "strategy_id": position.get("strategy_id", "CORE4_V7_BETA_REGIME_DONCHIAN"),
+        "shadow_only": bool(position.get("shadow_only", False)),
         "reason": reason,
         "time_ms": time_ms,
         "time_utc": utc_iso(time_ms),
@@ -284,6 +408,8 @@ def _close_trade(state: dict[str, Any], position: dict[str, Any]) -> dict[str, A
         **{key: position[key] for key in ("signal_id", "symbol", "side", "entry_time_utc", "entry", "initial_stop", "initial_notional", "initial_risk_cash", "paper_only")},
         "quality_tier": position.get("quality_tier", QUALITY_STANDARD),
         "quality_label": position.get("quality_label", "V7 STANDARD"),
+        "strategy_id": position.get("strategy_id", "CORE4_V7_BETA_REGIME_DONCHIAN"),
+        "shadow_only": bool(position.get("shadow_only", False)),
         "cross_market_count": int(position.get("cross_market_count", 1)),
         "cross_market_symbols": list(
             position.get("cross_market_symbols", [position["symbol"]])
@@ -424,6 +550,31 @@ def process_position_path(
     if position["remaining_quantity"] <= 1e-12:
         trade = _close_trade(state, position)
     return notifications, trade
+
+
+def ensure_v17_state(state: dict[str, Any]) -> dict[str, Any]:
+    shadow = state.setdefault(
+        "shadow_v17",
+        {
+            "strategy_id": V17_STRATEGY_ID,
+            "cash": 1.0,
+            "equity": 1.0,
+            "signals": [],
+            "active_positions": [],
+            "closed_trades": [],
+            "events": [],
+        },
+    )
+    for key, default in (
+        ("cash", 1.0),
+        ("equity", 1.0),
+        ("signals", []),
+        ("active_positions", []),
+        ("closed_trades", []),
+        ("events", []),
+    ):
+        shadow.setdefault(key, default)
+    return shadow
 
 
 class ForwardEngine:
@@ -698,6 +849,175 @@ class ForwardEngine:
                     errors.append(f"{position['symbol']} initial replay: {type(exc).__name__}: {exc}")
                     position["status"] = "DATA_GAP"
 
+            shadow = ensure_v17_state(state)
+            shadow_active: list[dict[str, Any]] = []
+            for position in shadow.get("active_positions", []):
+                try:
+                    position_source = daily_sources[position["symbol"]]
+                    if (
+                        self.config.require_futures_for_signals
+                        and position_source != SOURCE_USDM_FUTURES
+                    ):
+                        raise RuntimeError(
+                            f"untrusted daily data source: {position_source}"
+                        )
+                    events, trade = self._replay_position(
+                        shadow, position, daily_by_symbol[position["symbol"]], now_ms
+                    )
+                    notifications.extend(events)
+                    if trade is None:
+                        position["status"] = "OPEN"
+                        shadow_active.append(position)
+                    else:
+                        notifications.append(
+                            {
+                                "event_id": f"{position['signal_id']}:CLOSED",
+                                "reason": "TRADE_CLOSED",
+                                "trade": trade,
+                            }
+                        )
+                except Exception as exc:
+                    errors.append(
+                        f"{position['symbol']} V17 replay: {type(exc).__name__}: {exc}"
+                    )
+                    position["status"] = "DATA_GAP"
+                    shadow_active.append(position)
+            shadow["active_positions"] = shadow_active
+
+            v17_active_symbols = {
+                position["symbol"] for position in shadow["active_positions"]
+            }
+            v17_raw = [
+                candidate
+                for symbol in self.symbols
+                if symbol not in v17_active_symbols
+                if (candidate := evaluate_v17_candidate(symbol, daily_by_symbol, now_ms))
+                is not None
+            ]
+            v17_pending: list[dict[str, Any]] = []
+            v17_existing_ids = {
+                signal["signal_id"] for signal in shadow.get("signals", [])
+            }
+            for candidate in qualify_v17_candidates(v17_raw):
+                symbol = candidate["plan"]["symbol"]
+                if symbol in v17_active_symbols or candidate["signal_id"] in v17_existing_ids:
+                    continue
+                _, current = completed_and_current(daily_by_symbol[symbol], now_ms)
+                assert current is not None
+                candidate["current_price"] = current.close
+                candidate["detected_at_utc"] = utc_iso(now_ms)
+                candidate["entry_window_seconds"] = self.config.max_entry_lag_seconds
+                candidate["max_chase_bps"] = self.config.max_chase_bps
+                candidate["data_sources"] = {
+                    peer: daily_sources[peer]
+                    for peer in set(candidate["cross_market_symbols"] + ["BTCUSDT"])
+                }
+                candidate["source_gate_passed"] = all(
+                    source == SOURCE_USDM_FUTURES
+                    for source in candidate["data_sources"].values()
+                )
+                lag_seconds = max(
+                    0.0, (now_ms - candidate["entry_time_ms"]) / 1000.0
+                )
+                direction = 1.0 if candidate["plan"]["side"] == "LONG" else -1.0
+                chase_bps = direction * (
+                    current.close / candidate["plan"]["entry"] - 1.0
+                ) * 10_000.0
+                candidate["entry_lag_seconds"] = lag_seconds
+                candidate["directional_chase_bps"] = chase_bps
+                if (
+                    self.config.require_futures_for_signals
+                    and not candidate["source_gate_passed"]
+                ):
+                    candidate["status"] = "SUPPRESSED_SOURCE_MISMATCH"
+                    shadow["signals"].append(candidate)
+                    notifications.append(candidate)
+                elif errors:
+                    candidate["status"] = "SUPPRESSED_DEGRADED"
+                    shadow["signals"].append(candidate)
+                    notifications.append(candidate)
+                elif lag_seconds > self.config.max_entry_lag_seconds:
+                    candidate["status"] = "SUPPRESSED_STALE"
+                    shadow["signals"].append(candidate)
+                    notifications.append(candidate)
+                elif chase_bps > self.config.max_chase_bps:
+                    candidate["status"] = "SUPPRESSED_CHASE"
+                    shadow["signals"].append(candidate)
+                    notifications.append(candidate)
+                else:
+                    v17_pending.append(candidate)
+                v17_existing_ids.add(candidate["signal_id"])
+
+            shadow_unrealized = sum(
+                _direction(position)
+                * position["remaining_quantity"]
+                * (marks[position["symbol"]] - position["entry"])
+                for position in shadow["active_positions"]
+                if position["symbol"] in marks
+            )
+            shadow_equity = float(shadow["cash"]) + shadow_unrealized
+            shadow_existing_gross = sum(
+                position["remaining_quantity"] * marks[position["symbol"]]
+                for position in shadow["active_positions"]
+                if position["symbol"] in marks
+            ) / shadow_equity
+            shadow_requested = sum(
+                signal["notional_fraction_requested"] for signal in v17_pending
+            )
+            shadow_available = max(
+                0.0, V17_MAX_INITIAL_GROSS - shadow_existing_gross
+            )
+            shadow_scale = (
+                min(1.0, shadow_available / shadow_requested)
+                if shadow_requested > 0.0
+                else 0.0
+            )
+            for signal in v17_pending:
+                allocated = signal["notional_fraction_requested"] * shadow_scale
+                signal["notional_fraction_allocated"] = allocated
+                if allocated <= 0.0:
+                    signal["status"] = "SUPPRESSED_CAPACITY"
+                    shadow["signals"].append(signal)
+                    notifications.append(signal)
+                    continue
+                signal["status"] = "OPEN"
+                position = new_position(signal, shadow_equity, allocated)
+                shadow["cash"] -= position["entry_fee"]
+                shadow["signals"].append(signal)
+                shadow["active_positions"].append(position)
+                notifications.append(signal)
+                try:
+                    events, trade = self._replay_position(
+                        shadow, position, daily_by_symbol[position["symbol"]], now_ms
+                    )
+                    notifications.extend(events)
+                    if trade is not None:
+                        shadow["active_positions"].remove(position)
+                        notifications.append(
+                            {
+                                "event_id": f"{position['signal_id']}:CLOSED",
+                                "reason": "TRADE_CLOSED",
+                                "trade": trade,
+                            }
+                        )
+                except Exception as exc:
+                    errors.append(
+                        f"{position['symbol']} V17 initial replay: {type(exc).__name__}: {exc}"
+                    )
+                    position["status"] = "DATA_GAP"
+
+            shadow_unrealized = sum(
+                _direction(position)
+                * position["remaining_quantity"]
+                * (marks[position["symbol"]] - position["entry"])
+                for position in shadow["active_positions"]
+                if position["symbol"] in marks
+            )
+            shadow["equity"] = float(shadow["cash"]) + shadow_unrealized
+            shadow["signals"] = shadow.get("signals", [])[-500:]
+            shadow["closed_trades"] = shadow.get("closed_trades", [])[-500:]
+            shadow["events"] = shadow.get("events", [])[-1000:]
+
             unrealized = sum(
                 _direction(position)
                 * position["remaining_quantity"]
@@ -731,6 +1051,9 @@ class ForwardEngine:
                 "active_positions": len(state["active_positions"]),
                 "closed_trades": len(state["closed_trades"]),
                 "equity": state["equity"],
+                "v17_shadow_active": len(shadow["active_positions"]),
+                "v17_shadow_closed": len(shadow["closed_trades"]),
+                "v17_shadow_equity": shadow["equity"],
                 "errors": errors,
                 "source_mismatches": source_mismatches,
                 "require_futures_for_signals": self.config.require_futures_for_signals,

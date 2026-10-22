@@ -31,6 +31,15 @@ class ForwardStore:
             "active_positions": [],
             "closed_trades": [],
             "events": [],
+            "shadow_v17": {
+                "strategy_id": "CORE4_V17_ALT_FAST_CONFIRMED_DAILY",
+                "cash": 1.0,
+                "equity": 1.0,
+                "signals": [],
+                "active_positions": [],
+                "closed_trades": [],
+                "events": [],
+            },
             "delivered_ids": [],
             "errors": [],
         }

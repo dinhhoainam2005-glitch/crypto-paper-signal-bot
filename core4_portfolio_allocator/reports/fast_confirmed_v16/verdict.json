@@ -1,0 +1,169 @@
+{
+  "experiment": "CORE4_V16_FAST_CONFIRMED_DAILY",
+  "configuration": {
+    "core": "V7 55/20",
+    "fast": "20/10 with at least two concurrent CORE4 signals",
+    "weights": {
+      "core": 0.7,
+      "fast": 0.30000000000000004
+    },
+    "cost_each_way": 0.002
+  },
+  "periods": {
+    "DEVELOPMENT_2021_2023": {
+      "baseline_v7": {
+        "days": 1095,
+        "total_return": 0.1026390983326142,
+        "cagr": 0.033135754584229904,
+        "sharpe": 0.9943853260701859,
+        "max_drawdown": -0.03289128063654767,
+        "trades": 88,
+        "win_rate": 0.5909090909090909,
+        "profit_factor": 1.8225443795348208,
+        "mean_r": 0.3218017082322638,
+        "median_holding_days": 8.125,
+        "trades_per_week": 0.5625570776255708
+      },
+      "fast_confirmed": {
+        "days": 1095,
+        "total_return": 0.09773156778660264,
+        "cagr": 0.03159934259514974,
+        "sharpe": 0.985161005644801,
+        "max_drawdown": -0.02502624952871646,
+        "trades": 81,
+        "win_rate": 0.6172839506172839,
+        "profit_factor": 1.8905511660012946,
+        "mean_r": 0.3352784954506467,
+        "median_holding_days": 8.375,
+        "trades_per_week": 0.5178082191780823
+      },
+      "candidate_v16": {
+        "days": 1095,
+        "total_return": 0.10116683916881053,
+        "cagr": 0.03267531026785098,
+        "sharpe": 1.047260839335178,
+        "max_drawdown": -0.027055366475457032,
+        "trades": 169,
+        "win_rate": 0.6035502958579881,
+        "profit_factor": 1.8411605440985,
+        "mean_r": 0.3282609967807195,
+        "median_holding_days": 8.375,
+        "trades_per_week": 1.080365296803653
+      },
+      "checks": {
+        "frequency_improves_25pct": true,
+        "win_not_worse": true,
+        "pf_not_worse": true,
+        "sharpe_not_worse": true,
+        "drawdown_not_worse": true,
+        "return_not_worse": false,
+        "fast_pf_ge_1p30": true,
+        "fast_mean_r_positive": true
+      }
+    },
+    "VALIDATION_2024": {
+      "baseline_v7": {
+        "days": 366,
+        "total_return": 0.012433502390705842,
+        "cagr": 0.012433502390705842,
+        "sharpe": 0.42191431450773914,
+        "max_drawdown": -0.028869628937770564,
+        "trades": 31,
+        "win_rate": 0.5483870967741935,
+        "profit_factor": 1.2494895139770505,
+        "mean_r": 0.120205364302757,
+        "median_holding_days": 6.458333333333333,
+        "trades_per_week": 0.592896174863388
+      },
+      "fast_confirmed": {
+        "days": 366,
+        "total_return": -0.0017151030591480154,
+        "cagr": -0.0017151030591480154,
+        "sharpe": -0.032839906592190674,
+        "max_drawdown": -0.049974635149546365,
+        "trades": 39,
+        "win_rate": 0.5641025641025641,
+        "profit_factor": 0.9702129849065207,
+        "mean_r": -0.00827913638781466,
+        "median_holding_days": 5.791666666666667,
+        "trades_per_week": 0.7459016393442623
+      },
+      "candidate_v16": {
+        "days": 366,
+        "total_return": 0.008188920755748619,
+        "cagr": 0.008188920755748619,
+        "sharpe": 0.2907787348172983,
+        "max_drawdown": -0.033991197097404946,
+        "trades": 70,
+        "win_rate": 0.5571428571428572,
+        "profit_factor": 1.1570000782951466,
+        "mean_r": 0.04862114248943849,
+        "median_holding_days": 6.166666666666666,
+        "trades_per_week": 1.3387978142076502
+      },
+      "checks": {
+        "frequency_improves_25pct": true,
+        "win_not_worse": true,
+        "pf_not_worse": false,
+        "sharpe_not_worse": false,
+        "drawdown_not_worse": false,
+        "return_not_worse": false,
+        "fast_pf_ge_1p30": false,
+        "fast_mean_r_positive": false
+      }
+    },
+    "LATER_2025_2026": {
+      "baseline_v7": {
+        "days": 608,
+        "total_return": 0.06605275472416161,
+        "cagr": 0.03921122516183906,
+        "sharpe": 1.3371449476517399,
+        "max_drawdown": -0.017893935707519182,
+        "trades": 37,
+        "win_rate": 0.7297297297297297,
+        "profit_factor": 2.823660109865161,
+        "mean_r": 0.49953895535735066,
+        "median_holding_days": 7.041666666666667,
+        "trades_per_week": 0.42598684210526316
+      },
+      "fast_confirmed": {
+        "days": 608,
+        "total_return": 0.06331168672207088,
+        "cagr": 0.03760364764266466,
+        "sharpe": 1.1566126890445505,
+        "max_drawdown": -0.03442610513774047,
+        "trades": 45,
+        "win_rate": 0.5777777777777777,
+        "profit_factor": 1.9972016924165517,
+        "mean_r": 0.39858016982386246,
+        "median_holding_days": 9.25,
+        "trades_per_week": 0.5180921052631579
+      },
+      "candidate_v16": {
+        "days": 608,
+        "total_return": 0.06523043432353459,
+        "cagr": 0.038729125120330554,
+        "sharpe": 1.335996495158236,
+        "max_drawdown": -0.022334036296420612,
+        "trades": 82,
+        "win_rate": 0.6463414634146342,
+        "profit_factor": 2.469130019164653,
+        "mean_r": 0.44413474378409484,
+        "median_holding_days": 7.875,
+        "trades_per_week": 0.944078947368421
+      },
+      "checks": {
+        "frequency_improves_25pct": true,
+        "win_not_worse": false,
+        "pf_not_worse": false,
+        "sharpe_not_worse": false,
+        "drawdown_not_worse": false,
+        "return_not_worse": false,
+        "fast_pf_ge_1p30": true,
+        "fast_mean_r_positive": true
+      }
+    }
+  },
+  "production_changed": false,
+  "decision": "REJECT_V16_NO_DEPLOY"
+}

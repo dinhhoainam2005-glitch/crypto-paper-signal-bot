@@ -126,6 +126,12 @@ def row_at(frame: pd.DataFrame, timestamp: pd.Timestamp) -> pd.Series | None:
     return frame.loc[timestamp] if timestamp in frame.index else None
 
 
+def has_concurrent_confirmation(
+    requests: list[tuple[str, Any, float]], minimum: int
+) -> bool:
+    return len({symbol for symbol, _, _ in requests}) >= minimum
+
+
 def exact_simulate(
     daily: dict[str, pd.DataFrame],
     hourly: dict[str, pd.DataFrame],
@@ -133,7 +139,14 @@ def exact_simulate(
     start: pd.Timestamp,
     end: pd.Timestamp,
     cost_rate: float = STRESS_COST,
+    min_concurrent_signals: int = 1,
+    tradable_symbols: tuple[str, ...] | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, float]]:
+    if min_concurrent_signals < 1 or min_concurrent_signals > len(SYMBOLS):
+        raise ValueError("min_concurrent_signals must be between one and the universe size")
+    allowed = set(SYMBOLS if tradable_symbols is None else tradable_symbols)
+    if not allowed or not allowed.issubset(SYMBOLS):
+        raise ValueError("tradable_symbols must be a non-empty CORE4 subset")
     calendar = pd.date_range(
         min(frame.index.min() for frame in hourly.values()),
         end - pd.Timedelta(hours=1),
@@ -210,6 +223,11 @@ def exact_simulate(
                 requests.append(
                     (symbol, plan, min(MAX_SYMBOL_NOTIONAL, RISK_PER_TRADE / risk_fraction))
                 )
+
+            if not has_concurrent_confirmation(requests, min_concurrent_signals):
+                requests = []
+            else:
+                requests = [item for item in requests if item[0] in allowed]
 
             unrealized = sum(
                 position.direction

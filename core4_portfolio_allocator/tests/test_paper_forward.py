@@ -39,8 +39,10 @@ from core4_portfolio_allocator.paper_forward.engine import (
     ForwardEngine,
     classify_cross_market_candidates,
     evaluate_candidate,
+    evaluate_v17_candidate,
     new_position,
     process_position_path,
+    qualify_v17_candidates,
 )
 from core4_portfolio_allocator.paper_forward.futures_stream import (
     BinanceFuturesStreamClient,
@@ -490,6 +492,9 @@ class PaperForwardTests(unittest.TestCase):
                 Path(directory) / "state.json", 60, 3600, 600, 40.0, 1500, False, True, True
             )
             store = ForwardStore(config.state_path, spec_sha256())
+            legacy_state = store.load()
+            legacy_state.pop("shadow_v17", None)
+            store.save(legacy_state)
             engine = ForwardEngine(client=FakeClient(markets), store=store, config=config)
             first = engine.scan(now_ms)
             second = engine.scan(now_ms)
@@ -659,6 +664,62 @@ class PaperForwardTests(unittest.TestCase):
         })
         self.assertIn("XÁC NHẬN CHÉO", text)
         self.assertIn("BTC, ETH", text)
+
+    def test_v17_shadow_requires_confirmation_and_only_trades_bnb_sol(self) -> None:
+        markets = daily_series("LONG")
+        now_ms = markets["BTCUSDT"][-1].open_time_ms + 60_000
+        raw = [
+            evaluate_v17_candidate(symbol, markets, now_ms)
+            for symbol in ("BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT")
+        ]
+        qualified = qualify_v17_candidates(
+            [candidate for candidate in raw if candidate is not None]
+        )
+        self.assertEqual(
+            {candidate["plan"]["symbol"] for candidate in qualified},
+            {"BNBUSDT", "SOLUSDT"},
+        )
+        self.assertTrue(all(candidate["shadow_only"] for candidate in qualified))
+        self.assertTrue(
+            all(
+                candidate["plan"]["capital_at_risk_fraction"] == 0.00105
+                for candidate in qualified
+            )
+        )
+        message = format_signal(
+            qualified[0]
+            | {
+                "current_price": qualified[0]["plan"]["entry"],
+                "entry_lag_seconds": 60.0,
+                "directional_chase_bps": 0.0,
+                "notional_fraction_allocated": 0.02,
+                "entry_window_seconds": 600,
+                "max_chase_bps": 40.0,
+            }
+        )
+        self.assertIn("V17 SHADOW", message)
+        self.assertIn("0.105% vốn", message)
+        self.assertIn("Donchian 10 ngày", message)
+
+    def test_engine_keeps_v17_shadow_ledger_separate(self) -> None:
+        markets = daily_series("LONG")
+        now_ms = markets["BTCUSDT"][-1].open_time_ms + 60_000
+        with tempfile.TemporaryDirectory() as directory:
+            config = RuntimeConfig(
+                Path(directory) / "state.json", 60, 3600, 600, 40.0, 1500, False, True, True
+            )
+            store = ForwardStore(config.state_path, spec_sha256())
+            engine = ForwardEngine(client=FakeClient(markets), store=store, config=config)
+            result = engine.scan(now_ms)
+            state = result["state"]
+            self.assertEqual(len(state["active_positions"]), 4)
+            self.assertEqual(
+                {position["symbol"] for position in state["shadow_v17"]["active_positions"]},
+                {"BNBUSDT", "SOLUSDT"},
+            )
+            self.assertEqual(len(state["signals"]), 4)
+            self.assertEqual(len(state["shadow_v17"]["signals"]), 2)
+            self.assertEqual(result["v17_shadow_active"], 2)
 
     def test_readiness_playbook_and_alert_are_watch_only(self) -> None:
         markets = daily_series("LONG")

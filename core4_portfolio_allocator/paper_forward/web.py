@@ -83,7 +83,8 @@ def scan_and_notify(startup: bool = False, force_heartbeat: bool = False) -> dic
             elif item.get("status") == "OPEN":
                 text = format_signal(item)
             elif notify_suppressed:
-                text = f"⚠️ <b>CORE4 V7 BỎ QUA {item['plan']['symbol']}</b>\n• Lý do: <code>{item['status']}</code>\n🔒 PAPER ONLY"
+                label = "CORE4 V17 SHADOW" if item.get("shadow_only") else "CORE4 V7"
+                text = f"⚠️ <b>{label} BỎ QUA {item['plan']['symbol']}</b>\n• Lý do: <code>{item['status']}</code>\n🔒 PAPER ONLY"
             else:
                 continue
             deliveries.append(send_once(state, item_id, text))
@@ -146,6 +147,7 @@ def health_payload(state: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         "status": "ok" if healthy else "degraded",
         "service": "core4-v7-paper-forward",
         "strategy_id": "CORE4_V7_BETA_REGIME_DONCHIAN",
+        "shadow_strategy_id": "CORE4_V17_ALT_FAST_CONFIRMED_DAILY",
         "paper_only": True,
         "live_trading": False,
         "spec_sha256": spec_sha256(),
@@ -186,10 +188,24 @@ class Handler(BaseHTTPRequestHandler):
             self.send_json(state)
             return
         if parsed.path == "/signals":
-            self.send_json({"signals": state.get("signals", [])[-50:]})
+            self.send_json(
+                {
+                    "signals": state.get("signals", [])[-50:],
+                    "v17_shadow_signals": state.get("shadow_v17", {}).get(
+                        "signals", []
+                    )[-50:],
+                }
+            )
             return
         if parsed.path == "/positions":
-            self.send_json({"active_positions": state.get("active_positions", [])})
+            self.send_json(
+                {
+                    "active_positions": state.get("active_positions", []),
+                    "v17_shadow_positions": state.get("shadow_v17", {}).get(
+                        "active_positions", []
+                    ),
+                }
+            )
             return
         if parsed.path == "/performance":
             self.send_json(
@@ -198,6 +214,7 @@ class Handler(BaseHTTPRequestHandler):
                     "cash": state.get("cash", 1.0),
                     "closed_trades": state.get("closed_trades", []),
                     "summary": forward_assessment(state),
+                    "v17_shadow": state.get("shadow_v17", {}),
                 }
             )
             return

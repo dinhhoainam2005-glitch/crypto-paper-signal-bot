@@ -59,6 +59,17 @@ shows the verified Futures and fallback counts explicitly.
 
 Decision support is available as JSON at `/analysis`. `/performance` includes
 the same cluster-level forward summary alongside the original trade ledger.
+It also exposes the isolated V17 shadow ledger.
+
+## V17 shadow challenger
+
+The service also observes `CORE4_V17_ALT_FAST_CONFIRMED_DAILY` without changing
+V7. V17 trades only BNB/SOL after at least two CORE4 markets produce a same-side
+20-day daily breakout. Its state, cash, equity, positions and results are
+separate under `shadow_v17`; V17 cannot consume V7 capacity or alter V7
+statistics. Telegram messages are explicitly marked `V17 SHADOW`, and the
+heartbeat reports its forward sample separately. See
+`V17_PAPER_SHADOW_PROTOCOL.md` for the frozen rule and evidence limits.
 
 ## Safety
 

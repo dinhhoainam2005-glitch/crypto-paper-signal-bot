@@ -14,6 +14,13 @@ from .decision_support import HISTORICAL_REFERENCE, forward_assessment
 
 
 VIETNAM = ZoneInfo("Asia/Ho_Chi_Minh")
+V17_HISTORICAL_REFERENCE = {
+    "trades_per_week": 0.815,
+    "win_rate": 0.6349,
+    "profit_factor": 1.968,
+    "sharpe": 1.103,
+    "max_drawdown": -0.0262,
+}
 
 
 def esc(value: Any) -> str:
@@ -72,6 +79,7 @@ def format_startup(scan: dict[str, Any]) -> str:
             "🎯 Kế hoạch: <b>Entry + SL + TP1/TP2/TP3 + giữ tối đa 90 ngày</b>",
             "🧭 Phân tầng: <b>STANDARD</b> | <b>XÁC NHẬN CHÉO khi ≥2 coin</b>",
             "⚠️ Tín hiệu cùng kỳ là một cụm tương quan, không phải các cược độc lập.",
+            "🧪 V17 shadow: <b>BNB/SOL 1D nhanh + xác nhận ≥2/4</b> | rủi ro <b>0,105%/lệnh</b>",
             "🧭 MTF 1h/4h: <b>CHỈ BỐI CẢNH / KHÔNG TỰ SINH LỆNH</b>",
             f"🧾 Nguồn Binance Futures xác minh: <b>{trusted}/4</b>",
             f"📂 Vị thế đang mở: <b>{len(active)}</b>",
@@ -102,26 +110,38 @@ def format_startup(scan: dict[str, Any]) -> str:
 
 def format_signal(signal: dict[str, Any]) -> str:
     plan = signal["plan"]
+    is_shadow = bool(signal.get("shadow_only", False))
     is_long = plan["side"] == "LONG"
     header = "🟢🔺" if is_long else "🔴🔻"
     action = "LONG (MUA)" if is_long else "SHORT (BÁN)"
     quality_tier = signal.get("quality_tier", "STANDARD")
     is_cross_market = quality_tier == "A_PLUS_CROSS_MARKET"
-    quality_label = "XÁC NHẬN CHÉO" if is_cross_market else "V7 STANDARD"
-    quality_icon = "💎" if is_cross_market else "📘"
+    quality_label = (
+        "V17 THỬ NGHIỆM SHADOW"
+        if is_shadow
+        else "XÁC NHẬN CHÉO" if is_cross_market else "V7 STANDARD"
+    )
+    quality_icon = "🧪" if is_shadow else "💎" if is_cross_market else "📘"
+    bot_label = "CORE4 V17 SHADOW" if is_shadow else "CORE4 V7 PAPER"
+    risk_pct = 100.0 * float(plan.get("capital_at_risk_fraction", 0.0035))
+    exit_channel = int(signal.get("exit_channel", 20))
     confirmations = ", ".join(
         symbol.replace("USDT", "")
         for symbol in signal.get("cross_market_symbols", [plan["symbol"]])
     )
     return "\n".join(
         [
-            f"{header} <b>CORE4 V7 PAPER {action} — {esc(plan['symbol'])}</b>",
+            f"{header} <b>{bot_label} {action} — {esc(plan['symbol'])}</b>",
             "━━━━━━━━━━━━━━━━━━━━━━━━",
             "✅ <b>TÍN HIỆU PAPER-FORWARD HỢP LỆ</b>",
             f"⏱️ Khung: <b>1D</b> | Hướng: <b>{action}</b>",
             f"{quality_icon} Phân loại: <b>{quality_label}</b>",
             f"• Xác nhận chéo: <b>{signal.get('cross_market_count', 1)}/4</b> | {esc(confirmations)}",
-            "• Nhãn xác nhận chéo dựa trên lịch sử; forward hiện chưa đủ mẫu.",
+            (
+                "• Hậu nghiệm cải thiện tổng thể nhưng chưa thắng mọi giai đoạn; đang kiểm chứng forward."
+                if is_shadow
+                else "• Nhãn xác nhận chéo dựa trên lịch sử; forward hiện chưa đủ mẫu."
+            ),
             "• MTF 1h/4h: <b>chỉ bối cảnh, không tạo lệnh</b>",
             "",
             "📍 <b>KẾ HOẠCH GIÁ</b>",
@@ -133,12 +153,12 @@ def format_signal(signal: dict[str, Any]) -> str:
             f"• TP3 (4R, chốt 50%): <code>{price(plan['take_profit_3'])}</code>",
             "",
             "🛡️ <b>QUẢN TRỊ</b>",
-            "• Rủi ro mô hình: <code>0.35% vốn</code>",
+            f"• Rủi ro mô hình: <code>{risk_pct:.3f}% vốn</code>",
             f"• Quy mô danh nghĩa: <code>{100.0 * signal.get('notional_fraction_allocated', 0.0):.2f}% vốn</code>",
-            f"• Rủi ro cả cụm nếu vào đủ: <code>{0.35 * signal.get('cross_market_count', 1):.2f}% vốn</code>",
+            f"• Rủi ro cả cụm nếu vào đủ: <code>{risk_pct * signal.get('portfolio_risk_count', signal.get('cross_market_count', 1)):.3f}% vốn</code>",
             "• Các coin cùng cụm có tương quan; không cộng chúng như cơ hội độc lập.",
             "• Sau TP1: dời SL về hòa vốn | Sau TP2: dời SL lên TP1",
-            "• Thoát sớm: đóng ngày phá kênh Donchian 20 ngày ngược hướng",
+            f"• Thoát sớm: đóng ngày phá kênh Donchian {exit_channel} ngày ngược hướng",
             "• Giữ tối đa: <b>90 ngày</b> | Rà soát: <b>mỗi ngày</b>",
             "• Nguồn: <b>BINANCE USD-M FUTURES ĐÃ XÁC MINH</b>",
             f"• Cửa sổ Entry: <b>{signal.get('entry_window_seconds', 600) / 60.0:.0f} phút</b> | Không đuổi quá <b>{signal.get('max_chase_bps', 40.0):.0f} bps</b>",
@@ -166,9 +186,10 @@ def format_position_event(event: dict[str, Any]) -> str:
         "MAX_HOLD": "HẾT 90 NGÀY",
     }
     reason = labels.get(event["reason"], event["reason"])
+    bot_label = "CORE4 V17 SHADOW" if event.get("shadow_only") else "CORE4 V7"
     return "\n".join(
         [
-            f"📌 <b>CORE4 V7 — {esc(reason)}</b>",
+            f"📌 <b>{bot_label} — {esc(reason)}</b>",
             "━━━━━━━━━━━━━━━━━━━━━━━━",
             f"• {esc(event['symbol'])} | <b>{esc(event['side'])}</b>",
             f"• Tầng: <b>{esc(quality_display(event.get('quality_label')))}</b>",
@@ -184,9 +205,10 @@ def format_position_event(event: dict[str, Any]) -> str:
 def format_trade_closed(trade: dict[str, Any]) -> str:
     result = "LÃI" if trade["net_pnl"] > 0 else "LỖ"
     icon = "✅" if trade["net_pnl"] > 0 else "⛔"
+    bot_label = "CORE4 V17 SHADOW" if trade.get("shadow_only") else "CORE4 V7"
     return "\n".join(
         [
-            f"{icon} <b>CORE4 V7 — ĐÃ ĐÓNG {esc(trade['symbol'])} {esc(trade['side'])}</b>",
+            f"{icon} <b>{bot_label} — ĐÃ ĐÓNG {esc(trade['symbol'])} {esc(trade['side'])}</b>",
             "━━━━━━━━━━━━━━━━━━━━━━━━",
             f"• Kết quả: <b>{result}</b> | <code>{trade['realized_r']:+.3f}R</code>",
             f"• Tầng: <b>{esc(quality_display(trade.get('quality_label')))}</b>",
@@ -233,6 +255,10 @@ def format_heartbeat(scan: dict[str, Any], state: dict[str, Any]) -> str:
     standard_pf_label = f"{standard_pf:.2f}" if math.isfinite(standard_pf) else "∞"
     confirmed_pf_label = f"{confirmed_pf:.2f}" if math.isfinite(confirmed_pf) else "∞"
     active = state.get("active_positions", [])
+    shadow = state.get("shadow_v17", {})
+    shadow_count, shadow_win, shadow_pf, shadow_mean = performance(shadow)
+    shadow_pf_label = f"{shadow_pf:.2f}" if math.isfinite(shadow_pf) else "∞"
+    shadow_active = shadow.get("active_positions", [])
     standard_open = sum(
         position.get("quality_tier", "STANDARD") == "STANDARD"
         for position in active
@@ -259,6 +285,14 @@ def format_heartbeat(scan: dict[str, Any], state: dict[str, Any]) -> str:
             f"📘 Standard: mở <b>{standard_open}</b> | đóng <b>{standard_count}</b> | Win <code>{standard_win:.1%}</code> | PF <code>{standard_pf_label}</code>",
             f"💰 Equity paper: <code>{float(state.get('equity', 1.0)):.4f}</code>",
             f"🧪 Forward theo cụm: <b>{forward_status}</b> | n=<code>{forward['clusters']}</code> | Win <code>{forward['win_rate']:.1%}</code> | PF <code>{cluster_pf_label}</code>",
+            f"🧪 V17 shadow: mở <b>{len(shadow_active)}</b> | đóng <b>{shadow_count}</b> | Win <code>{shadow_win:.1%}</code> | PF <code>{shadow_pf_label}</code> | Mean <code>{shadow_mean:+.3f}R</code>",
+            "📚 V17 hậu nghiệm: <code>{freq:.3f}/tuần</code> | Win <code>{win:.1%}</code> | PF <code>{pf:.2f}</code> | Sharpe <code>{sharpe:.2f}</code> | DD <code>{dd:.2%}</code>".format(
+                freq=V17_HISTORICAL_REFERENCE["trades_per_week"],
+                win=V17_HISTORICAL_REFERENCE["win_rate"],
+                pf=V17_HISTORICAL_REFERENCE["profit_factor"],
+                sharpe=V17_HISTORICAL_REFERENCE["sharpe"],
+                dd=V17_HISTORICAL_REFERENCE["max_drawdown"],
+            ),
             "📚 OOS lịch sử: <code>{trades} lệnh</code> | Win <code>{win:.1%}</code> | PF <code>{pf:.2f}</code> | Sharpe <code>{sharpe:.2f}</code>".format(
                 trades=HISTORICAL_REFERENCE["trades"],
                 win=HISTORICAL_REFERENCE["win_rate"],
