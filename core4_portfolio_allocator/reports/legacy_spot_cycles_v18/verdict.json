@@ -1,0 +1,332 @@
+{
+  "experiment": "CORE4_V18_LEGACY_SPOT_CYCLE_DIAGNOSTIC",
+  "period": "2018-01-01/2020-12-31",
+  "symbols": [
+    "BTCUSDT",
+    "ETHUSDT",
+    "BNBUSDT"
+  ],
+  "execution_limitations": [
+    "spot daily bars rather than exact H1 Futures execution",
+    "no Futures funding",
+    "SOL unavailable, so this is not the production CORE4 universe"
+  ],
+  "selection_authorized": false,
+  "results": {
+    "CHANNEL_20_10": {
+      "full": {
+        "days": 1096,
+        "total_return": 0.08739026010116602,
+        "cagr": 0.02832046641678554,
+        "sharpe": 0.834711966863716,
+        "max_drawdown": -0.02831425274403232,
+        "trades": 90,
+        "win_rate": 0.5555555555555556,
+        "profit_factor": 1.6446155517757661,
+        "mean_r": 0.2719851229765074,
+        "median_holding_days": 8.0,
+        "trades_per_week": 0.5748175182481752
+      },
+      "years": {
+        "2018": {
+          "days": 365,
+          "total_return": 0.03386268969024431,
+          "cagr": 0.033957281012651386,
+          "sharpe": 1.1668226919327387,
+          "max_drawdown": -0.02022737431714472,
+          "trades": 20,
+          "win_rate": 0.6,
+          "profit_factor": 2.4255040898738067,
+          "mean_r": 0.48437743274264466,
+          "median_holding_days": 13.5,
+          "trades_per_week": 0.3835616438356164
+        },
+        "2019": {
+          "days": 365,
+          "total_return": -0.0009743810360509642,
+          "cagr": -0.000977056598876369,
+          "sharpe": -0.02171962246737526,
+          "max_drawdown": -0.02380926724364918,
+          "trades": 30,
+          "win_rate": 0.43333333333333335,
+          "profit_factor": 0.9828799503645401,
+          "mean_r": -0.004792648236856619,
+          "median_holding_days": 5.0,
+          "trades_per_week": 0.5753424657534246
+        },
+        "2020": {
+          "days": 366,
+          "total_return": 0.052800180138767416,
+          "cagr": 0.052800180138767416,
+          "sharpe": 1.1999268214081884,
+          "max_drawdown": -0.023460738996278763,
+          "trades": 40,
+          "win_rate": 0.625,
+          "profit_factor": 2.0294896785725314,
+          "mean_r": 0.3733722965034616,
+          "median_holding_days": 8.5,
+          "trades_per_week": 0.7650273224043715
+        }
+      },
+      "diagnostics": {
+        "minimum_equity": 0.9966166039534845,
+        "maximum_initial_gross": 0.17730274983087801,
+        "final_equity": 1.0873902601011673,
+        "reconciled_equity": 1.0873902601011662,
+        "reconciliation_error": 1.1102230246251565e-15
+      }
+    },
+    "CHANNEL_40_15": {
+      "full": {
+        "days": 1096,
+        "total_return": 0.0748131804002008,
+        "cagr": 0.0243404618174754,
+        "sharpe": 0.8280614642618945,
+        "max_drawdown": -0.023284724534675116,
+        "trades": 72,
+        "win_rate": 0.5416666666666666,
+        "profit_factor": 1.6295563612161144,
+        "mean_r": 0.29268321694637983,
+        "median_holding_days": 5.5,
+        "trades_per_week": 0.4598540145985401
+      },
+      "years": {
+        "2018": {
+          "days": 365,
+          "total_return": 0.04247837838726265,
+          "cagr": 0.0425975282577975,
+          "sharpe": 1.5658744936367497,
+          "max_drawdown": -0.008181456550710453,
+          "trades": 13,
+          "win_rate": 0.7692307692307693,
+          "profit_factor": 6.99213386653412,
+          "mean_r": 0.9253758707522975,
+          "median_holding_days": 25.0,
+          "trades_per_week": 0.24931506849315066
+        },
+        "2019": {
+          "days": 365,
+          "total_return": -0.0007436893978679526,
+          "cagr": -0.0007457317386169171,
+          "sharpe": -0.021590738275945393,
+          "max_drawdown": -0.017077759061120745,
+          "trades": 23,
+          "win_rate": 0.4782608695652174,
+          "profit_factor": 0.9457679576775239,
+          "mean_r": -0.02567889228489099,
+          "median_holding_days": 4.0,
+          "trades_per_week": 0.44109589041095887
+        },
+        "2020": {
+          "days": 366,
+          "total_return": 0.03178456720100842,
+          "cagr": 0.03178456720100842,
+          "sharpe": 0.8571258803009414,
+          "max_drawdown": -0.023284724534675227,
+          "trades": 36,
+          "win_rate": 0.5,
+          "profit_factor": 1.5268881835490786,
+          "mean_r": 0.26760888396977717,
+          "median_holding_days": 5.5,
+          "trades_per_week": 0.6885245901639344
+        }
+      },
+      "diagnostics": {
+        "minimum_equity": 0.9980459562905611,
+        "maximum_initial_gross": 0.1721222938734223,
+        "final_equity": 1.0748131804002017,
+        "reconciled_equity": 1.0748131804002017,
+        "reconciliation_error": 0.0
+      }
+    },
+    "CHANNEL_55_20": {
+      "full": {
+        "days": 1096,
+        "total_return": 0.07081101926198596,
+        "cagr": 0.02306747329811487,
+        "sharpe": 0.854330557073422,
+        "max_drawdown": -0.022017744357046953,
+        "trades": 64,
+        "win_rate": 0.578125,
+        "profit_factor": 1.708245487838388,
+        "mean_r": 0.31146452228577476,
+        "median_holding_days": 5.0,
+        "trades_per_week": 0.4087591240875912
+      },
+      "years": {
+        "2018": {
+          "days": 365,
+          "total_return": 0.04447212217728813,
+          "cagr": 0.044596983115877675,
+          "sharpe": 1.6352404957813167,
+          "max_drawdown": -0.007809298586191282,
+          "trades": 12,
+          "win_rate": 0.9166666666666666,
+          "profit_factor": 13.269310783944174,
+          "mean_r": 1.0475354196511921,
+          "median_holding_days": 24.0,
+          "trades_per_week": 0.23013698630136986
+        },
+        "2019": {
+          "days": 365,
+          "total_return": 0.0029822861580348636,
+          "cagr": 0.002990491490387326,
+          "sharpe": 0.1470789142295153,
+          "max_drawdown": -0.015523577181532189,
+          "trades": 21,
+          "win_rate": 0.47619047619047616,
+          "profit_factor": 0.9999244514204501,
+          "mean_r": 0.004223867248372368,
+          "median_holding_days": 4.0,
+          "trades_per_week": 0.4027397260273972
+        },
+        "2020": {
+          "days": 366,
+          "total_return": 0.022169024160835438,
+          "cagr": 0.022169024160835438,
+          "sharpe": 0.7067007435171525,
+          "max_drawdown": -0.02201774435704751,
+          "trades": 31,
+          "win_rate": 0.5161290322580645,
+          "profit_factor": 1.48529315632002,
+          "mean_r": 0.23466461865353086,
+          "median_holding_days": 5.0,
+          "trades_per_week": 0.592896174863388
+        }
+      },
+      "diagnostics": {
+        "minimum_equity": 0.9990206669751579,
+        "maximum_initial_gross": 0.1721222938734223,
+        "final_equity": 1.0708110192619853,
+        "reconciled_equity": 1.0708110192619853,
+        "reconciliation_error": 0.0
+      }
+    },
+    "CHANNEL_70_25": {
+      "full": {
+        "days": 1096,
+        "total_return": 0.04914140754026852,
+        "cagr": 0.016119243094516067,
+        "sharpe": 0.6514966857795674,
+        "max_drawdown": -0.03140112815562357,
+        "trades": 61,
+        "win_rate": 0.5409836065573771,
+        "profit_factor": 1.4812025819092636,
+        "mean_r": 0.22991067075289875,
+        "median_holding_days": 5.0,
+        "trades_per_week": 0.3895985401459854
+      },
+      "years": {
+        "2018": {
+          "days": 365,
+          "total_return": 0.033252239562355346,
+          "cagr": 0.03334509831516397,
+          "sharpe": 1.4541867417924603,
+          "max_drawdown": -0.008126160376854763,
+          "trades": 10,
+          "win_rate": 0.8,
+          "profit_factor": 5.588097674186447,
+          "mean_r": 0.9426384604022194,
+          "median_holding_days": 30.0,
+          "trades_per_week": 0.1917808219178082
+        },
+        "2019": {
+          "days": 365,
+          "total_return": 0.002982286158035752,
+          "cagr": 0.002990491490388214,
+          "sharpe": 0.1470789142295464,
+          "max_drawdown": -0.015523577181532189,
+          "trades": 21,
+          "win_rate": 0.47619047619047616,
+          "profit_factor": 0.9999244514204501,
+          "mean_r": 0.004223867248372452,
+          "median_holding_days": 4.0,
+          "trades_per_week": 0.4027397260273972
+        },
+        "2020": {
+          "days": 366,
+          "total_return": 0.01235867771886423,
+          "cagr": 0.01235867771886423,
+          "sharpe": 0.4275788055689675,
+          "max_drawdown": -0.03140112815562324,
+          "trades": 30,
+          "win_rate": 0.5,
+          "profit_factor": 1.2984411659828032,
+          "mean_r": 0.15031550332296043,
+          "median_holding_days": 5.0,
+          "trades_per_week": 0.5737704918032787
+        }
+      },
+      "diagnostics": {
+        "minimum_equity": 0.9969909997858879,
+        "maximum_initial_gross": 0.16315479013500933,
+        "final_equity": 1.0491414075402672,
+        "reconciled_equity": 1.0491414075402667,
+        "reconciliation_error": 4.440892098500626e-16
+      }
+    },
+    "CHANNEL_90_30": {
+      "full": {
+        "days": 1096,
+        "total_return": 0.05461539339063615,
+        "cagr": 0.017883408366926146,
+        "sharpe": 0.7613969665053564,
+        "max_drawdown": -0.02126158874610251,
+        "trades": 57,
+        "win_rate": 0.5614035087719298,
+        "profit_factor": 1.6016809736593238,
+        "mean_r": 0.2712166742206663,
+        "median_holding_days": 5.0,
+        "trades_per_week": 0.3640510948905109
+      },
+      "years": {
+        "2018": {
+          "days": 365,
+          "total_return": 0.032599048354821525,
+          "cagr": 0.032690054331427465,
+          "sharpe": 1.445069274851701,
+          "max_drawdown": -0.007416446023695733,
+          "trades": 9,
+          "win_rate": 0.7777777777777778,
+          "profit_factor": 5.5008165434651675,
+          "mean_r": 1.0272944789660672,
+          "median_holding_days": 29.0,
+          "trades_per_week": 0.17260273972602738
+        },
+        "2019": {
+          "days": 365,
+          "total_return": 0.002982286158035752,
+          "cagr": 0.002990491490388214,
+          "sharpe": 0.14707891422953048,
+          "max_drawdown": -0.015523577181531079,
+          "trades": 21,
+          "win_rate": 0.47619047619047616,
+          "profit_factor": 0.99992445142045,
+          "mean_r": 0.004223867248372368,
+          "median_holding_days": 4.0,
+          "trades_per_week": 0.4027397260273972
+        },
+        "2020": {
+          "days": 366,
+          "total_return": 0.018284475535623734,
+          "cagr": 0.018284475535623734,
+          "sharpe": 0.6991337651133849,
+          "max_drawdown": -0.021261588746102955,
+          "trades": 27,
+          "win_rate": 0.5555555555555556,
+          "profit_factor": 1.5251332414645415,
+          "mean_r": 0.22685181139509464,
+          "median_holding_days": 5.0,
+          "trades_per_week": 0.5163934426229508
+        }
+      },
+      "diagnostics": {
+        "minimum_equity": 0.9963607318511912,
+        "maximum_initial_gross": 0.1631547901350094,
+        "final_equity": 1.0546153933906357,
+        "reconciled_equity": 1.0546153933906366,
+        "reconciliation_error": 8.881784197001252e-16
+      }
+    }
+  }
+}
