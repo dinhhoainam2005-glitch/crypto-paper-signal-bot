@@ -172,7 +172,16 @@ def routed_exact_simulate(
     start: pd.Timestamp,
     end: pd.Timestamp,
     cost_rate: float = STRESS_COST,
+    entry_delay_days: int = 0,
+    funding_credit_fraction: float = 1.0,
+    funding_cost_multiplier: float = 1.0,
+    tradable_symbols: tuple[str, ...] = SYMBOLS,
 ) -> tuple[pd.DataFrame, pd.DataFrame, dict[str, float | int]]:
+    if entry_delay_days < 0:
+        raise ValueError("entry_delay_days must be non-negative")
+    active_symbols = set(tradable_symbols)
+    if not active_symbols or not active_symbols.issubset(SYMBOLS):
+        raise ValueError("tradable_symbols must be a non-empty CORE4 subset")
     calendar = pd.date_range(start, end - pd.Timedelta(hours=1), freq="1h", tz="UTC")
     cash = 1.0
     previous_equity = 1.0
@@ -223,13 +232,14 @@ def routed_exact_simulate(
                 finish(key)
 
         if timestamp.hour == 0:
+            signal_day = decision_day - pd.Timedelta(days=entry_delay_days)
             core_candidates: list[tuple[str, str, str, pd.Series]] = []
             fast_candidates: list[tuple[str, str, str, pd.Series]] = []
-            for symbol in SYMBOLS:
+            for symbol in tradable_symbols:
                 if rows[symbol] is None:
                     continue
-                core_row = row_at(core_daily[symbol], decision_day)
-                core_side = audit_side(core_daily, symbol, decision_day)
+                core_row = row_at(core_daily[symbol], signal_day)
+                core_side = audit_side(core_daily, symbol, signal_day)
                 if (
                     ("CORE", symbol) not in positions
                     and core_side is not None
@@ -237,8 +247,8 @@ def routed_exact_simulate(
                     and pd.notna(core_row["atr20"])
                 ):
                     core_candidates.append(("CORE", symbol, core_side, core_row))
-                fast_row = row_at(fast_daily[symbol], decision_day)
-                fast_side = audit_side(fast_daily, symbol, decision_day)
+                fast_row = row_at(fast_daily[symbol], signal_day)
+                fast_side = audit_side(fast_daily, symbol, signal_day)
                 if (
                     ("FAST", symbol) not in positions
                     and fast_side is not None
@@ -248,7 +258,7 @@ def routed_exact_simulate(
                     fast_candidates.append(("FAST", symbol, fast_side, fast_row))
 
             fast_confirmed = len({item[1] for item in fast_candidates}) >= 2
-            regime_allowed = policy_allows(policy, context, decision_day)
+            regime_allowed = policy_allows(policy, context, signal_day)
             if regime_allowed:
                 fast_eligible_days += 1
             fast_candidates = [
@@ -342,6 +352,10 @@ def routed_exact_simulate(
                 * float(row["open"])
                 * rate
             )
+            if funding_cash >= 0.0:
+                funding_cash *= funding_credit_fraction
+            else:
+                funding_cash *= funding_cost_multiplier
             position.funding_pnl += funding_cash
             cash += funding_cash
 
