@@ -69,6 +69,11 @@ def quality_display(value: Any) -> str:
 
 def bot_display(item: dict[str, Any]) -> str:
     if (
+        item.get("shadow_version") == "V22"
+        or item.get("strategy_id") == "CORE4_V22_EXECUTION_TRUTH_SHADOW"
+    ):
+        return "CORE4 V22 EXECUTION"
+    if (
         item.get("shadow_version") == "V20"
         or item.get("strategy_id") == "CORE4_V20_TREND_BREADTH2_SHADOW"
     ):
@@ -103,6 +108,7 @@ def format_startup(scan: dict[str, Any]) -> str:
             "⚠️ Tín hiệu cùng kỳ là một cụm tương quan, không phải các cược độc lập.",
             "🧪 V17 shadow: <b>BNB/SOL 1D nhanh + xác nhận ≥2/4</b> | rủi ro <b>0,105%/lệnh</b>",
             "🧭 V20 shadow: <b>CORE + FAST theo TREND_BREADTH2</b> | ledger riêng / watch only",
+            "🔬 V22 execution: <b>bid/ask Futures thật + ledger khớp lệnh riêng</b> | watch only",
             "🛡️ V21 go-live: <b>KHÓA</b> | đạt <b>{passed}/{total}</b> cổng | Forward <code>{days:.1f}/90 ngày</code> | Cụm <code>{clusters}/20</code>".format(
                 passed=int(v21.get("passed_checks", 0)),
                 total=int(v21.get("total_checks", 11)),
@@ -146,9 +152,12 @@ def format_signal(signal: dict[str, Any]) -> str:
     quality_tier = signal.get("quality_tier", "STANDARD")
     is_cross_market = quality_tier == "A_PLUS_CROSS_MARKET"
     is_v20 = signal.get("shadow_version") == "V20"
+    is_v22 = signal.get("shadow_version") == "V22"
     sleeve = str(signal.get("sleeve") or "")
     quality_label = (
-        f"V20 {sleeve} PAPER-SHADOW"
+        f"V22 {sleeve} EXECUTION TRUTH"
+        if is_v22
+        else f"V20 {sleeve} PAPER-SHADOW"
         if is_v20
         else "V17 THỬ NGHIỆM SHADOW"
         if is_shadow
@@ -305,6 +314,29 @@ def format_heartbeat(scan: dict[str, Any], state: dict[str, Any]) -> str:
     v20_pf_label = f"{v20_pf:.2f}" if math.isfinite(v20_pf) else "∞"
     v20_active = v20.get("active_positions", [])
     v20_context = v20.get("last_regime_context", {})
+    v22 = state.get("shadow_v22", {})
+    v22_count, v22_win, v22_pf, v22_mean = performance(v22)
+    v22_pf_label = f"{v22_pf:.2f}" if math.isfinite(v22_pf) else "∞"
+    v22_active = v22.get("active_positions", [])
+    execution_samples = v22.get("execution_samples", [])
+    captured_samples = [
+        sample for sample in execution_samples if sample.get("status") == "CAPTURED"
+    ]
+    capture_rate = (
+        len(captured_samples) / len(execution_samples) if execution_samples else 0.0
+    )
+    average_spread = (
+        sum(float(sample.get("spread_bps", 0.0)) for sample in captured_samples)
+        / len(captured_samples)
+        if captured_samples
+        else 0.0
+    )
+    average_adverse_fill = (
+        sum(float(sample.get("adverse_fill_bps", 0.0)) for sample in captured_samples)
+        / len(captured_samples)
+        if captured_samples
+        else 0.0
+    )
     v21 = state.get("production_readiness_v21", {})
     v21_forward = v21.get("forward", {})
     v21_operations = v21.get("operations", {})
@@ -338,6 +370,20 @@ def format_heartbeat(scan: dict[str, Any], state: dict[str, Any]) -> str:
             f"🧪 Forward theo cụm: <b>{forward_status}</b> | n=<code>{forward['clusters']}</code> | Win <code>{forward['win_rate']:.1%}</code> | PF <code>{cluster_pf_label}</code>",
             f"🧪 V17 shadow: mở <b>{len(shadow_active)}</b> | đóng <b>{shadow_count}</b> | Win <code>{shadow_win:.1%}</code> | PF <code>{shadow_pf_label}</code> | Mean <code>{shadow_mean:+.3f}R</code>",
             f"🧭 V20 shadow: mở <b>{len(v20_active)}</b> | đóng <b>{v20_count}</b> | Win <code>{v20_win:.1%}</code> | PF <code>{v20_pf_label}</code> | Mean <code>{v20_mean:+.3f}R</code>",
+            "🔬 V22 execution: mở <b>{active}</b> | đóng <b>{closed}</b> | Win <code>{win:.1%}</code> | PF <code>{pf}</code> | Mean <code>{mean:+.3f}R</code>".format(
+                active=len(v22_active),
+                closed=v22_count,
+                win=v22_win,
+                pf=v22_pf_label,
+                mean=v22_mean,
+            ),
+            "📏 V22 quote: <code>{captured}/{total}</code> ({rate:.1%}) | spread TB <code>{spread:.2f} bps</code> | lệch entry TB <code>{adverse:+.2f} bps</code>".format(
+                captured=len(captured_samples),
+                total=len(execution_samples),
+                rate=capture_rate,
+                spread=average_spread,
+                adverse=average_adverse_fill,
+            ),
             "🧭 V20 gate: <b>{status}</b> | hướng <b>{side}</b> | breadth <code>{breadth}/4</code> | FAST <b>{fast}</b>".format(
                 status="ĐẠT" if v20_context.get("allowed") else "CHỜ",
                 side=esc(v20_context.get("side") or "n/a"),

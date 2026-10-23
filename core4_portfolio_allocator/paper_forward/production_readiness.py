@@ -94,12 +94,17 @@ def update_v21_telemetry(
     trusted = len(scan.get("groups", [])) == 4 and all(
         group.get("source_trusted") is True for group in scan.get("groups", [])
     )
-    v20_positions = state.get("shadow_v20", {}).get("active_positions", [])
-    data_gap = any(position.get("status") == "DATA_GAP" for position in v20_positions)
+    evidence = state.get("shadow_v22") or state.get("shadow_v20", {})
+    evidence_positions = evidence.get("active_positions", [])
+    data_gap = any(
+        position.get("status") == "DATA_GAP" for position in evidence_positions
+    )
     critical_errors = [
         str(error)
-        for error in scan.get("errors", [])
-        if "V20" in str(error) or "source" in str(error).lower()
+        for error in scan.get("errors", []) + scan.get("v22_errors", [])
+        if "V20" in str(error)
+        or "V22" in str(error)
+        or "source" in str(error).lower()
     ]
     if healthy:
         telemetry["healthy_scans"] = int(telemetry["healthy_scans"]) + 1
@@ -117,9 +122,9 @@ def update_v21_telemetry(
         if not trusted:
             incident_types.append("UNTRUSTED_SOURCE")
         if data_gap:
-            incident_types.append("V20_DATA_GAP")
+            incident_types.append("EXECUTION_DATA_GAP")
         if critical_errors:
-            incident_types.append("V20_RUNTIME_ERROR")
+            incident_types.append("EXECUTION_RUNTIME_ERROR")
         incidents.append(
             {
                 "time_utc": now_utc,
@@ -136,14 +141,15 @@ def production_readiness(
     state: dict[str, Any], now_utc: str | None = None
 ) -> dict[str, Any]:
     now = _parse_utc(now_utc, datetime.now(timezone.utc)) if now_utc else datetime.now(timezone.utc)
-    v20 = state.get("shadow_v20", {})
+    evidence = state.get("shadow_v22") or state.get("shadow_v20", {})
     created = _parse_utc(
-        v20.get("created_utc") or state.get("v21_telemetry", {}).get("started_utc"),
+        evidence.get("created_utc")
+        or state.get("v21_telemetry", {}).get("started_utc"),
         now,
     )
     observation_days = max(0.0, (now - created).total_seconds() / 86_400.0)
-    metrics = cluster_performance(v20)
-    trades = v20.get("closed_trades", [])
+    metrics = cluster_performance(evidence)
+    trades = evidence.get("closed_trades", [])
     maximum_drawdown = _cluster_drawdown(metrics["items"])
     concentration = _profit_concentration(trades)
     telemetry = ensure_v21_telemetry(state, now.isoformat())
@@ -153,7 +159,16 @@ def production_readiness(
     data_gap_rate = _safe_rate(int(telemetry.get("data_gap_scans", 0)), samples)
     cutoff = now - timedelta(days=INCIDENT_LOOKBACK_DAYS)
     recent_critical_incidents = sum(
-        any(kind in {"V20_DATA_GAP", "V20_RUNTIME_ERROR"} for kind in item.get("types", []))
+        any(
+            kind
+            in {
+                "V20_DATA_GAP",
+                "V20_RUNTIME_ERROR",
+                "EXECUTION_DATA_GAP",
+                "EXECUTION_RUNTIME_ERROR",
+            }
+            for kind in item.get("types", [])
+        )
         and _parse_utc(item.get("time_utc"), now) >= cutoff
         for item in telemetry.get("incidents", [])
     )
@@ -224,11 +239,14 @@ def production_readiness(
     else:
         status = "LOCKED_QUALITY_OR_OPERATIONAL_GATE"
     signal_statuses: dict[str, int] = {}
-    for signal in v20.get("signals", []):
+    for signal in evidence.get("signals", []):
         key = str(signal.get("status", "UNKNOWN"))
         signal_statuses[key] = signal_statuses.get(key, 0) + 1
     return {
         "gate_id": V21_GATE_ID,
+        "evidence_strategy_id": evidence.get(
+            "strategy_id", "CORE4_V20_TREND_BREADTH2_SHADOW"
+        ),
         "status": status,
         "gate_passed": gate_passed,
         "manual_approval_required": True,

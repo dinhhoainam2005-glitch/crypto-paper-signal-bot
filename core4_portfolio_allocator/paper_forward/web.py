@@ -151,6 +151,7 @@ def health_payload(state: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         "strategy_id": "CORE4_V7_BETA_REGIME_DONCHIAN",
         "shadow_strategy_id": "CORE4_V17_ALT_FAST_CONFIRMED_DAILY",
         "v20_shadow_strategy_id": "CORE4_V20_TREND_BREADTH2_SHADOW",
+        "v22_execution_strategy_id": "CORE4_V22_EXECUTION_TRUTH_SHADOW",
         "v21_readiness_gate_id": "CORE4_V21_PRODUCTION_READINESS",
         "v21_readiness_status": v21.get("status", "INITIALIZING"),
         "real_money_authorized": False,
@@ -204,6 +205,9 @@ class Handler(BaseHTTPRequestHandler):
                     "v20_shadow_signals": state.get("shadow_v20", {}).get(
                         "signals", []
                     )[-100:],
+                    "v22_execution_signals": state.get("shadow_v22", {}).get(
+                        "signals", []
+                    )[-100:],
                 }
             )
             return
@@ -215,6 +219,9 @@ class Handler(BaseHTTPRequestHandler):
                         "active_positions", []
                     ),
                     "v20_shadow_positions": state.get("shadow_v20", {}).get(
+                        "active_positions", []
+                    ),
+                    "v22_execution_positions": state.get("shadow_v22", {}).get(
                         "active_positions", []
                     ),
                 }
@@ -229,6 +236,7 @@ class Handler(BaseHTTPRequestHandler):
                     "summary": forward_assessment(state),
                     "v17_shadow": state.get("shadow_v17", {}),
                     "v20_shadow": state.get("shadow_v20", {}),
+                    "v22_execution": state.get("shadow_v22", {}),
                 }
             )
             return

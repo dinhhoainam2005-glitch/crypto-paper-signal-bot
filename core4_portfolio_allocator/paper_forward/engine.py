@@ -50,6 +50,7 @@ V20_FAST_WEIGHT = 1.0 - V20_CORE_WEIGHT_WITH_FAST
 V20_MIN_BREADTH = 2
 V20_SMA_SLOPE_DAYS = 20
 V20_MAX_INITIAL_GROSS = MAX_INITIAL_GROSS
+V22_STRATEGY_ID = "CORE4_V22_EXECUTION_TRUTH_SHADOW"
 
 
 def utc_iso(milliseconds: int) -> str:
@@ -782,6 +783,107 @@ def ensure_v20_state(state: dict[str, Any]) -> dict[str, Any]:
     return shadow
 
 
+def ensure_v22_state(state: dict[str, Any]) -> dict[str, Any]:
+    shadow = state.setdefault(
+        "shadow_v22",
+        {
+            "strategy_id": V22_STRATEGY_ID,
+            "created_utc": now_iso(),
+            "cash": 1.0,
+            "equity": 1.0,
+            "signals": [],
+            "active_positions": [],
+            "closed_trades": [],
+            "events": [],
+            "execution_samples": [],
+            "last_quote_error": None,
+        },
+    )
+    for key, default in (
+        ("created_utc", now_iso()),
+        ("cash", 1.0),
+        ("equity", 1.0),
+        ("signals", []),
+        ("active_positions", []),
+        ("closed_trades", []),
+        ("events", []),
+        ("execution_samples", []),
+        ("last_quote_error", None),
+    ):
+        shadow.setdefault(key, default)
+    return shadow
+
+
+def build_v22_execution_signal(
+    source: dict[str, Any],
+    quote: dict[str, Any],
+    quote_source: str,
+    detected_ms: int,
+) -> dict[str, Any]:
+    """Mirror one V20 signal using the executable side of a live Futures quote."""
+    signal = copy.deepcopy(source)
+    plan = signal["plan"]
+    side = str(plan["side"])
+    bid = float(quote["bid_price"])
+    ask = float(quote["ask_price"])
+    if not math.isfinite(bid) or not math.isfinite(ask) or bid <= 0.0 or ask < bid:
+        raise ValueError("invalid book ticker")
+    reference_entry = float(plan["entry"])
+    executable_entry = ask if side == "LONG" else bid
+    midpoint = (bid + ask) / 2.0
+    direction = 1.0 if side == "LONG" else -1.0
+    spread_bps = (ask - bid) / midpoint * 10_000.0
+    adverse_bps = direction * (executable_entry / reference_entry - 1.0) * 10_000.0
+    original_id = str(signal["signal_id"])
+    symbol = str(plan["symbol"])
+    sleeve = str(signal.get("sleeve", "CORE"))
+    plan["entry"] = executable_entry
+    risk_fraction = abs(executable_entry - float(plan["stop_loss"])) / executable_entry
+    risk_budget = float(plan.get("capital_at_risk_fraction", RISK_PER_TRADE))
+    if risk_fraction <= 0.0 or not math.isfinite(risk_fraction):
+        raise ValueError("invalid execution-adjusted risk distance")
+    signal.update(
+        signal_id=(
+            f"CORE4V22EXEC:{sleeve}:{symbol}:{side}:{source['entry_time_ms']}"
+        ),
+        origin_v20_signal_id=original_id,
+        strategy_id=V22_STRATEGY_ID,
+        shadow_version="V22",
+        shadow_only=True,
+        quality_tier=f"V22_{sleeve}_EXECUTION_TRUTH",
+        quality_label=f"V22 {sleeve} EXECUTION TRUTH",
+        reference_entry_time_ms=int(source["entry_time_ms"]),
+        reference_entry_time_utc=str(source["entry_time_utc"]),
+        entry_time_ms=detected_ms,
+        entry_time_utc=utc_iso(detected_ms),
+        current_price=midpoint,
+        detected_at_utc=utc_iso(detected_ms),
+        entry_lag_seconds=max(
+            0.0, (detected_ms - int(source["entry_time_ms"])) / 1000.0
+        ),
+        directional_chase_bps=adverse_bps,
+        notional_fraction_requested=min(
+            float(source["notional_fraction_requested"]), risk_budget / risk_fraction
+        ),
+        execution_truth={
+            "status": "CAPTURED",
+            "source": quote_source,
+            "captured_at_ms": int(quote.get("captured_at_ms", detected_ms)),
+            "captured_at_utc": utc_iso(
+                int(quote.get("captured_at_ms", detected_ms))
+            ),
+            "reference_entry": reference_entry,
+            "bid_price": bid,
+            "ask_price": ask,
+            "mid_price": midpoint,
+            "estimated_market_fill": executable_entry,
+            "spread_bps": spread_bps,
+            "adverse_fill_bps": adverse_bps,
+        },
+    )
+    return signal
+
+
 class ForwardEngine:
     def __init__(
         self,
@@ -814,6 +916,12 @@ class ForwardEngine:
                 SOURCE_USDM_FUTURES,
             )
         return loader(symbol, start_ms, end_ms, self.config.max_replay_minutes)
+
+    def _book_ticker(self, symbol: str) -> tuple[dict[str, Any], str]:
+        loader = getattr(self.client, "book_ticker_with_source", None)
+        if loader is None:
+            raise RuntimeError("book ticker is unavailable on the market client")
+        return loader(symbol)
 
     def _replay_position(
         self,
@@ -853,6 +961,7 @@ class ForwardEngine:
             groups: list[dict[str, Any]] = []
             notifications: list[dict[str, Any]] = []
             errors: list[str] = []
+            v22_errors: list[str] = []
             for symbol in self.symbols:
                 try:
                     candles, source = self._daily_candles(symbol)
@@ -1261,6 +1370,32 @@ class ForwardEngine:
                     v20_active.append(position)
             v20["active_positions"] = v20_active
 
+            v22 = ensure_v22_state(state)
+            v22_active: list[dict[str, Any]] = []
+            for position in v22.get("active_positions", []):
+                try:
+                    position_source = daily_sources[position["symbol"]]
+                    if (
+                        self.config.require_futures_for_signals
+                        and position_source != SOURCE_USDM_FUTURES
+                    ):
+                        raise RuntimeError(
+                            f"untrusted daily data source: {position_source}"
+                        )
+                    _, trade = self._replay_position(
+                        v22, position, daily_by_symbol[position["symbol"]], now_ms
+                    )
+                    if trade is None:
+                        position["status"] = "OPEN"
+                        v22_active.append(position)
+                except Exception as exc:
+                    v22_errors.append(
+                        f"{position['symbol']} V22 replay: {type(exc).__name__}: {exc}"
+                    )
+                    position["status"] = "DATA_GAP"
+                    v22_active.append(position)
+            v22["active_positions"] = v22_active
+
             v20_active_keys = {
                 (
                     str(position.get("sleeve", "CORE")),
@@ -1357,6 +1492,7 @@ class ForwardEngine:
                 if v20_requested > 0.0
                 else 0.0
             )
+            v22_pending: list[dict[str, Any]] = []
             for signal in v20_pending:
                 allocated = signal["notional_fraction_requested"] * v20_scale
                 signal["notional_fraction_allocated"] = allocated
@@ -1371,6 +1507,39 @@ class ForwardEngine:
                 v20["signals"].append(signal)
                 v20["active_positions"].append(position)
                 notifications.append(signal)
+                try:
+                    quote, quote_source = self._book_ticker(position["symbol"])
+                    if quote_source != SOURCE_USDM_FUTURES:
+                        raise RuntimeError(f"untrusted book ticker source: {quote_source}")
+                    execution_signal = build_v22_execution_signal(
+                        signal, quote, quote_source, now_ms
+                    )
+                    v22_pending.append(execution_signal)
+                    v22.setdefault("execution_samples", []).append(
+                        {
+                            "origin_v20_signal_id": signal["signal_id"],
+                            "v22_signal_id": execution_signal["signal_id"],
+                            "symbol": position["symbol"],
+                            "side": position["side"],
+                            **execution_signal["execution_truth"],
+                        }
+                    )
+                    v22["last_quote_error"] = None
+                except Exception as exc:
+                    message = f"{position['symbol']} V22 quote: {type(exc).__name__}: {exc}"
+                    v22_errors.append(message)
+                    v22["last_quote_error"] = message
+                    v22.setdefault("execution_samples", []).append(
+                        {
+                            "origin_v20_signal_id": signal["signal_id"],
+                            "symbol": position["symbol"],
+                            "side": position["side"],
+                            "status": "QUOTE_ERROR",
+                            "captured_at_ms": now_ms,
+                            "captured_at_utc": utc_iso(now_ms),
+                            "error": message,
+                        }
+                    )
                 try:
                     events, trade = self._replay_position(
                         v20, position, daily_by_symbol[position["symbol"]], now_ms
@@ -1391,6 +1560,54 @@ class ForwardEngine:
                     )
                     position["status"] = "DATA_GAP"
 
+            v22_unrealized = sum(
+                _direction(position)
+                * position["remaining_quantity"]
+                * (marks[position["symbol"]] - position["entry"])
+                for position in v22["active_positions"]
+                if position["symbol"] in marks
+            )
+            v22_equity = float(v22["cash"]) + v22_unrealized
+            v22_existing_gross = sum(
+                position["remaining_quantity"] * marks[position["symbol"]]
+                for position in v22["active_positions"]
+                if position["symbol"] in marks
+            ) / v22_equity
+            v22_requested = sum(
+                signal["notional_fraction_requested"] for signal in v22_pending
+            )
+            v22_available = max(
+                0.0, V20_MAX_INITIAL_GROSS - v22_existing_gross
+            )
+            v22_scale = (
+                min(1.0, v22_available / v22_requested)
+                if v22_requested > 0.0
+                else 0.0
+            )
+            for signal in v22_pending:
+                allocated = signal["notional_fraction_requested"] * v22_scale
+                signal["notional_fraction_allocated"] = allocated
+                if allocated <= 0.0:
+                    signal["status"] = "SUPPRESSED_CAPACITY"
+                    v22["signals"].append(signal)
+                    continue
+                signal["status"] = "OPEN"
+                position = new_position(signal, v22_equity, allocated)
+                v22["cash"] -= position["entry_fee"]
+                v22["signals"].append(signal)
+                v22["active_positions"].append(position)
+                try:
+                    _, trade = self._replay_position(
+                        v22, position, daily_by_symbol[position["symbol"]], now_ms
+                    )
+                    if trade is not None:
+                        v22["active_positions"].remove(position)
+                except Exception as exc:
+                    v22_errors.append(
+                        f"{position['symbol']} V22 initial replay: {type(exc).__name__}: {exc}"
+                    )
+                    position["status"] = "DATA_GAP"
+
             v20_unrealized = sum(
                 _direction(position)
                 * position["remaining_quantity"]
@@ -1402,6 +1619,19 @@ class ForwardEngine:
             v20["signals"] = v20.get("signals", [])[-1000:]
             v20["closed_trades"] = v20.get("closed_trades", [])[-1000:]
             v20["events"] = v20.get("events", [])[-2000:]
+
+            v22_unrealized = sum(
+                _direction(position)
+                * position["remaining_quantity"]
+                * (marks[position["symbol"]] - position["entry"])
+                for position in v22["active_positions"]
+                if position["symbol"] in marks
+            )
+            v22["equity"] = float(v22["cash"]) + v22_unrealized
+            v22["signals"] = v22.get("signals", [])[-1000:]
+            v22["closed_trades"] = v22.get("closed_trades", [])[-1000:]
+            v22["events"] = v22.get("events", [])[-2000:]
+            v22["execution_samples"] = v22.get("execution_samples", [])[-2000:]
 
             unrealized = sum(
                 _direction(position)
@@ -1443,6 +1673,11 @@ class ForwardEngine:
                 "v20_shadow_closed": len(v20["closed_trades"]),
                 "v20_shadow_equity": v20["equity"],
                 "v20_regime_context": v20.get("last_regime_context", {}),
+                "v22_execution_active": len(v22["active_positions"]),
+                "v22_execution_closed": len(v22["closed_trades"]),
+                "v22_execution_equity": v22["equity"],
+                "v22_execution_samples": len(v22.get("execution_samples", [])),
+                "v22_errors": v22_errors,
                 "errors": errors,
                 "source_mismatches": source_mismatches,
                 "require_futures_for_signals": self.config.require_futures_for_signals,

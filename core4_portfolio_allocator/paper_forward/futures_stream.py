@@ -204,6 +204,7 @@ class BinanceFuturesStreamClient:
             symbol: {} for symbol in self.symbols
         }
         self.last_mark: dict[str, dict[str, Any]] = {}
+        self.last_book: dict[str, dict[str, Any]] = {}
         self.minute_archive_attempts: dict[tuple[str, str], float] = {}
         self.minute_rest_attempts: dict[tuple[str, int, int], float] = {}
         self.gap_client = gap_client or BinanceClient(timeout_seconds=4.0, retries=0)
@@ -241,6 +242,7 @@ class BinanceFuturesStreamClient:
                             int(item["fundingTime"]): item for item in items
                         }
                 self.last_mark = dict(payload.get("last_mark", {}))
+                self.last_book = dict(payload.get("last_book", {}))
         except (OSError, TypeError, ValueError, json.JSONDecodeError):
             return
 
@@ -271,6 +273,7 @@ class BinanceFuturesStreamClient:
                     for symbol, items in self.funding_stream.items()
                 },
                 "last_mark": self.last_mark,
+                "last_book": self.last_book,
             }
         self.cache_path.parent.mkdir(parents=True, exist_ok=True)
         temporary = self.cache_path.with_suffix(
@@ -292,6 +295,7 @@ class BinanceFuturesStreamClient:
                     f"{lowered}@kline_1d",
                     f"{lowered}@kline_1m",
                     f"{lowered}@markPrice@1s",
+                    f"{lowered}@bookTicker",
                 )
             )
         return STREAM_BASE + "/".join(streams)
@@ -356,6 +360,19 @@ class BinanceFuturesStreamClient:
                     )
             elif event_type == "markPriceUpdate":
                 self._handle_mark(event)
+            elif event_type == "bookTicker":
+                symbol = str(event.get("s", "")).upper()
+                if symbol in self.daily_stream:
+                    self.last_book[symbol] = {
+                        "symbol": symbol,
+                        "bid_price": float(event["b"]),
+                        "bid_quantity": float(event.get("B", 0.0)),
+                        "ask_price": float(event["a"]),
+                        "ask_quantity": float(event.get("A", 0.0)),
+                        "captured_at_ms": normalize_epoch_ms(
+                            event.get("E", int(time.time() * 1000))
+                        ),
+                    }
             self.last_event_ms = int(time.time() * 1000)
             self.condition.notify_all()
         self._save_stream_cache()
@@ -597,3 +614,14 @@ class BinanceFuturesStreamClient:
     def ticker_price(self, symbol: str) -> float:
         value, _ = self.ticker_price_with_source(symbol)
         return value
+
+    def book_ticker_with_source(
+        self, symbol: str
+    ) -> tuple[dict[str, float | int | str], str]:
+        symbol = symbol.upper()
+        now_ms = int(time.time() * 1000)
+        with self.lock:
+            quote = self.last_book.get(symbol)
+            if quote and now_ms - int(quote.get("captured_at_ms", 0)) <= 10_000:
+                return dict(quote), SOURCE_USDM_FUTURES
+        return self.gap_client.book_ticker_with_source(symbol)

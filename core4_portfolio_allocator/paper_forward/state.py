@@ -51,6 +51,18 @@ class ForwardStore:
                 "events": [],
                 "last_regime_context": {},
             },
+            "shadow_v22": {
+                "strategy_id": "CORE4_V22_EXECUTION_TRUTH_SHADOW",
+                "created_utc": now_iso(),
+                "cash": 1.0,
+                "equity": 1.0,
+                "signals": [],
+                "active_positions": [],
+                "closed_trades": [],
+                "events": [],
+                "execution_samples": [],
+                "last_quote_error": None,
+            },
             "v21_telemetry": {
                 "gate_id": "CORE4_V21_PRODUCTION_READINESS",
                 "started_utc": now_iso(),

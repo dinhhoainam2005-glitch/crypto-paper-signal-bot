@@ -210,6 +210,27 @@ class BinanceClient:
         )
         return float(payload["price"]), source
 
+    def book_ticker_with_source(
+        self, symbol: str
+    ) -> tuple[dict[str, float | int | str], str]:
+        payload, source = self._request_with_source(
+            "/fapi/v1/ticker/bookTicker",
+            {"symbol": symbol},
+            spot_fallback_path="/api/v3/ticker/bookTicker",
+        )
+        captured_at_ms = int(time.time() * 1000)
+        return (
+            {
+                "symbol": str(payload.get("symbol", symbol)).upper(),
+                "bid_price": float(payload["bidPrice"]),
+                "bid_quantity": float(payload.get("bidQty", 0.0)),
+                "ask_price": float(payload["askPrice"]),
+                "ask_quantity": float(payload.get("askQty", 0.0)),
+                "captured_at_ms": captured_at_ms,
+            },
+            source,
+        )
+
     def funding_rates(self, symbol: str, start_ms: int, end_ms: int) -> list[dict[str, Any]]:
         if end_ms < start_ms:
             return []

@@ -37,6 +37,7 @@ from core4_portfolio_allocator.paper_forward.decision_support import (
 from core4_portfolio_allocator.paper_forward.engine import (
     DAY_MS,
     ForwardEngine,
+    build_v22_execution_signal,
     build_v20_candidates,
     classify_cross_market_candidates,
     evaluate_candidate,
@@ -112,6 +113,20 @@ class FakeClient:
 
     def funding_rates(self, symbol: str, start_ms: int, end_ms: int) -> list[dict]:
         return []
+
+    def book_ticker_with_source(self, symbol: str) -> tuple[dict, str]:
+        current = self.daily[symbol][-1]
+        return (
+            {
+                "symbol": symbol,
+                "bid_price": current.close * 0.9999,
+                "bid_quantity": 10.0,
+                "ask_price": current.close * 1.0001,
+                "ask_quantity": 10.0,
+                "captured_at_ms": current.open_time_ms + 60_000,
+            },
+            SOURCE_USDM_FUTURES,
+        )
 
 
 class FailingClient(FakeClient):
@@ -211,6 +226,22 @@ class PaperForwardTests(unittest.TestCase):
             self.assertEqual(source, "BINANCE_USDM_FUTURES")
             self.assertEqual(len(candles), 260)
             self.assertEqual(candles[-1].open_time_ms, current_open)
+            quote_time = int(time.time() * 1000)
+            client._handle_message(
+                {
+                    "e": "bookTicker",
+                    "E": quote_time,
+                    "s": "BTCUSDT",
+                    "b": "101.9",
+                    "B": "2.0",
+                    "a": "102.1",
+                    "A": "3.0",
+                }
+            )
+            quote, quote_source = client.book_ticker_with_source("BTCUSDT")
+            self.assertEqual(quote_source, SOURCE_USDM_FUTURES)
+            self.assertEqual(quote["bid_price"], 101.9)
+            self.assertEqual(quote["ask_price"], 102.1)
             minute_open = current_open + 60_000
             client._handle_message(
                 {
@@ -444,9 +475,13 @@ class PaperForwardTests(unittest.TestCase):
 
         self.assertIn("SOLUSDT", startup)
         self.assertIn("Vị thế đang mở: <b>1</b>", startup)
+        self.assertIn("V22 execution", startup)
+        self.assertLess(len(startup), 4096)
         self.assertIn("SOLUSDT", heartbeat)
         self.assertIn("còn 2.35%", heartbeat)
         self.assertIn("82,282.80", heartbeat)
+        self.assertIn("V22 execution", heartbeat)
+        self.assertLess(len(heartbeat), 4096)
 
     def test_daily_candles_fall_back_to_public_spot_market_data(self) -> None:
         client = SpotFallbackClient()
@@ -792,8 +827,45 @@ class PaperForwardTests(unittest.TestCase):
             )
             self.assertEqual(result["v20_shadow_active"], 6)
             self.assertTrue(v20["last_regime_context"]["fast_active"])
+            v22 = state["shadow_v22"]
+            self.assertEqual(len(v22["active_positions"]), 6)
+            self.assertEqual(len(v22["execution_samples"]), 6)
+            self.assertTrue(
+                all(
+                    sample["status"] == "CAPTURED"
+                    for sample in v22["execution_samples"]
+                )
+            )
+            self.assertEqual(
+                state["production_readiness_v21"]["evidence_strategy_id"],
+                "CORE4_V22_EXECUTION_TRUTH_SHADOW",
+            )
             self.assertFalse(state["production_readiness_v21"]["gate_passed"])
             self.assertEqual(state["v21_telemetry"]["scan_samples"], 1)
+
+    def test_v22_uses_executable_quote_without_mutating_v20_signal(self) -> None:
+        markets = daily_series("LONG")
+        now_ms = markets["BTCUSDT"][-1].open_time_ms + 60_000
+        candidates, _ = build_v20_candidates(markets, now_ms)
+        source = candidates[0]
+        reference_entry = source["plan"]["entry"]
+        quote = {
+            "bid_price": reference_entry * 0.9998,
+            "ask_price": reference_entry * 1.0002,
+            "captured_at_ms": now_ms,
+        }
+        mirrored = build_v22_execution_signal(
+            source, quote, SOURCE_USDM_FUTURES, now_ms
+        )
+
+        self.assertEqual(source["plan"]["entry"], reference_entry)
+        self.assertAlmostEqual(mirrored["plan"]["entry"], quote["ask_price"])
+        self.assertEqual(mirrored["shadow_version"], "V22")
+        self.assertEqual(mirrored["origin_v20_signal_id"], source["signal_id"])
+        self.assertAlmostEqual(mirrored["execution_truth"]["spread_bps"], 4.0)
+        self.assertAlmostEqual(
+            mirrored["execution_truth"]["adverse_fill_bps"], 2.0
+        )
 
     def test_readiness_playbook_and_alert_are_watch_only(self) -> None:
         markets = daily_series("LONG")
