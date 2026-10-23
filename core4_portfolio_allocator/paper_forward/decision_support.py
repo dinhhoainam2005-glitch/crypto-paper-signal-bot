@@ -13,11 +13,17 @@ READINESS_RANK = {
     "TESTING": 3,
 }
 
+CORE_SYMBOLS = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT")
+
 # Frozen results from the exact 1h execution and event-time funding audit.
 HISTORICAL_REFERENCE = {
     "period": "2021-01-01/2026-08-31",
     "trades": 156,
-    "trades_per_week": 0.528,
+    "frequency_basis": "PER_COIN_AVERAGE",
+    "trades_per_week": 0.132,
+    "trades_per_coin_per_week": 0.132,
+    "portfolio_trades_per_week": 0.528,
+    "symbol_count": len(CORE_SYMBOLS),
     "win_rate": 0.6153846153846154,
     "profit_factor": 1.8829853639540033,
     "sharpe": 1.0064208993716734,
@@ -184,6 +190,51 @@ def cluster_performance(state: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def per_coin_frequency(
+    state: dict[str, Any], as_of_utc: str | None = None
+) -> dict[str, Any]:
+    """Return trade frequency with one coin as the primary unit of measure."""
+    if as_of_utc:
+        as_of = datetime.fromisoformat(as_of_utc.replace("Z", "+00:00")).astimezone(
+            timezone.utc
+        )
+    else:
+        as_of = datetime.now(timezone.utc)
+    created = datetime.fromisoformat(
+        str(state.get("created_utc", as_of.isoformat())).replace("Z", "+00:00")
+    ).astimezone(timezone.utc)
+    observation_days = max(0.0, (as_of - created).total_seconds() / 86_400.0)
+    observation_weeks = max(observation_days / 7.0, 1.0 / 168.0)
+
+    trades = [
+        *state.get("closed_trades", []),
+        *state.get("active_positions", []),
+    ]
+    counts = {
+        symbol: sum(str(trade.get("symbol")) == symbol for trade in trades)
+        for symbol in CORE_SYMBOLS
+    }
+    by_symbol = {
+        symbol: counts[symbol] / observation_weeks for symbol in CORE_SYMBOLS
+    }
+    cluster_keys = {
+        str(trade.get("entry_time_utc", trade.get("signal_id", "unknown")))[:10]
+        for trade in trades
+    }
+    return {
+        "frequency_basis": "PER_COIN",
+        "observation_days": observation_days,
+        "trades": len(trades),
+        "trades_per_coin_per_week": (
+            len(trades) / (len(CORE_SYMBOLS) * observation_weeks)
+        ),
+        "trades_per_week_by_symbol": by_symbol,
+        "portfolio_trades_per_week": len(trades) / observation_weeks,
+        "clusters": len(cluster_keys),
+        "clusters_per_week": len(cluster_keys) / observation_weeks,
+    }
+
+
 def forward_assessment(state: dict[str, Any]) -> dict[str, Any]:
     metrics = cluster_performance(state)
     created = datetime.fromisoformat(
@@ -228,6 +279,7 @@ def decision_support_payload(
         "historical_reference": HISTORICAL_REFERENCE,
         "cross_market_diagnostic": CROSS_MARKET_DIAGNOSTIC,
         "forward": forward_assessment(state),
+        "forward_frequency": per_coin_frequency(state, scan.get("time_utc")),
         "market_playbook": [
             {
                 key: group.get(key)

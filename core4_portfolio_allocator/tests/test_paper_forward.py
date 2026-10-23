@@ -31,6 +31,7 @@ from core4_portfolio_allocator.paper_forward.config import (
 from core4_portfolio_allocator.paper_forward.decision_support import (
     annotate_market_readiness,
     cluster_performance,
+    per_coin_frequency,
     readiness_band,
     update_readiness_state,
 )
@@ -495,7 +496,42 @@ class PaperForwardTests(unittest.TestCase):
         self.assertIn("còn 2.35%", heartbeat)
         self.assertIn("82,282.80", heartbeat)
         self.assertIn("V22 execution", heartbeat)
+        self.assertIn("Tần suất/coin", heartbeat)
+        self.assertIn("TB mỗi coin", heartbeat)
         self.assertLess(len(heartbeat), 4096)
+
+    def test_frequency_uses_each_coin_as_primary_unit(self) -> None:
+        state = {
+            "created_utc": "2026-09-01T00:00:00+00:00",
+            "active_positions": [],
+            "closed_trades": [
+                {
+                    "symbol": "BTCUSDT",
+                    "entry_time_utc": "2026-09-08T00:00:00+00:00",
+                },
+                {
+                    "symbol": "BTCUSDT",
+                    "entry_time_utc": "2026-09-15T00:00:00+00:00",
+                },
+                {
+                    "symbol": "ETHUSDT",
+                    "entry_time_utc": "2026-09-15T00:00:00+00:00",
+                },
+                {
+                    "symbol": "BNBUSDT",
+                    "entry_time_utc": "2026-09-15T00:00:00+00:00",
+                },
+            ],
+        }
+
+        result = per_coin_frequency(state, "2026-09-29T00:00:00+00:00")
+
+        self.assertEqual(result["frequency_basis"], "PER_COIN")
+        self.assertAlmostEqual(result["trades_per_coin_per_week"], 0.25)
+        self.assertAlmostEqual(result["trades_per_week_by_symbol"]["BTCUSDT"], 0.5)
+        self.assertAlmostEqual(result["trades_per_week_by_symbol"]["ETHUSDT"], 0.25)
+        self.assertAlmostEqual(result["trades_per_week_by_symbol"]["SOLUSDT"], 0.0)
+        self.assertAlmostEqual(result["clusters_per_week"], 0.5)
 
     def test_daily_candles_fall_back_to_public_spot_market_data(self) -> None:
         client = SpotFallbackClient()

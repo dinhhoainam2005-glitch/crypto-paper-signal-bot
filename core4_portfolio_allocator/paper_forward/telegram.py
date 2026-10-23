@@ -10,12 +10,17 @@ from datetime import datetime, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
-from .decision_support import HISTORICAL_REFERENCE, forward_assessment
+from .decision_support import (
+    HISTORICAL_REFERENCE,
+    forward_assessment,
+    per_coin_frequency,
+)
 
 
 VIETNAM = ZoneInfo("Asia/Ho_Chi_Minh")
 V17_HISTORICAL_REFERENCE = {
-    "trades_per_week": 0.815,
+    "trades_per_coin_per_week": 0.815 / 4.0,
+    "portfolio_trades_per_week": 0.815,
     "win_rate": 0.6349,
     "profit_factor": 1.968,
     "sharpe": 1.103,
@@ -23,7 +28,15 @@ V17_HISTORICAL_REFERENCE = {
 }
 V20_HISTORICAL_REFERENCE = {
     "trades": 221,
-    "trades_per_week": 0.737,
+    "trades_per_coin_per_week": 0.737 / 4.0,
+    "portfolio_trades_per_week": 0.737,
+    "clusters_per_week": 0.470,
+    "trades_per_week_by_symbol": {
+        "BTCUSDT": 0.123,
+        "ETHUSDT": 0.123,
+        "SOLUSDT": 0.237,
+        "BNBUSDT": 0.253,
+    },
     "win_rate": 0.611,
     "profit_factor": 1.956,
     "sharpe": 1.131,
@@ -345,6 +358,8 @@ def format_heartbeat(scan: dict[str, Any], state: dict[str, Any]) -> str:
         state, "A_PLUS_CROSS_MARKET"
     )
     forward = forward_assessment(state)
+    frequency = per_coin_frequency(state, scan.get("time_utc"))
+    symbol_frequency = frequency["trades_per_week_by_symbol"]
     pf_label = f"{pf:.2f}" if math.isfinite(pf) else "∞"
     standard_pf_label = f"{standard_pf:.2f}" if math.isfinite(standard_pf) else "∞"
     confirmed_pf_label = f"{confirmed_pf:.2f}" if math.isfinite(confirmed_pf) else "∞"
@@ -409,6 +424,16 @@ def format_heartbeat(scan: dict[str, Any], state: dict[str, Any]) -> str:
             f"✅ Hệ thống: <b>{'ỔN' if scan.get('status') == 'OK' else 'SUY GIẢM'}</b> | Dữ liệu: <b>{ready}/4</b>",
             f"📂 Vị thế mở: <b>{len(state.get('active_positions', []))}</b> | Đã đóng: <b>{count}</b>",
             f"📈 Forward: Win <code>{win_rate:.1%}</code> | PF <code>{pf_label}</code> | Mean <code>{mean_r:+.3f}R</code>",
+            "⏱️ Tần suất/coin: BTC <code>{btc:.3f}</code> | ETH <code>{eth:.3f}</code> | SOL <code>{sol:.3f}</code> | BNB <code>{bnb:.3f}</code> lệnh/tuần".format(
+                btc=symbol_frequency["BTCUSDT"],
+                eth=symbol_frequency["ETHUSDT"],
+                sol=symbol_frequency["SOLUSDT"],
+                bnb=symbol_frequency["BNBUSDT"],
+            ),
+            "🧩 TB mỗi coin: <code>{per_coin:.3f}/tuần</code> | Cụm độc lập: <code>{clusters:.3f}/tuần</code>".format(
+                per_coin=frequency["trades_per_coin_per_week"],
+                clusters=frequency["clusters_per_week"],
+            ),
             f"💎 Xác nhận chéo: mở <b>{confirmed_open}</b> | đóng <b>{confirmed_count}</b> | Win <code>{confirmed_win:.1%}</code> | PF <code>{confirmed_pf_label}</code>",
             f"📘 Standard: mở <b>{standard_open}</b> | đóng <b>{standard_count}</b> | Win <code>{standard_win:.1%}</code> | PF <code>{standard_pf_label}</code>",
             f"💰 Equity paper: <code>{float(state.get('equity', 1.0)):.4f}</code>",
@@ -446,8 +471,15 @@ def format_heartbeat(scan: dict[str, Any], state: dict[str, Any]) -> str:
                 breadth=int(v20_context.get("breadth", 0)),
                 fast="BẬT" if v20_context.get("fast_active") else "TẮT",
             ),
-            "📚 V20 hậu nghiệm: <code>{freq:.3f}/tuần</code> | <code>{trades} lệnh</code> | Win <code>{win:.1%}</code> | PF <code>{pf:.2f}</code> | Sharpe <code>{sharpe:.2f}</code> | DD <code>{dd:.2%}</code>".format(
-                freq=V20_HISTORICAL_REFERENCE["trades_per_week"],
+            "📚 V20/coin: TB <code>{freq:.3f}/tuần</code> | BTC <code>{btc:.3f}</code> | ETH <code>{eth:.3f}</code> | SOL <code>{sol:.3f}</code> | BNB <code>{bnb:.3f}</code> | Cụm <code>{clusters:.3f}/tuần</code>".format(
+                freq=V20_HISTORICAL_REFERENCE["trades_per_coin_per_week"],
+                btc=V20_HISTORICAL_REFERENCE["trades_per_week_by_symbol"]["BTCUSDT"],
+                eth=V20_HISTORICAL_REFERENCE["trades_per_week_by_symbol"]["ETHUSDT"],
+                sol=V20_HISTORICAL_REFERENCE["trades_per_week_by_symbol"]["SOLUSDT"],
+                bnb=V20_HISTORICAL_REFERENCE["trades_per_week_by_symbol"]["BNBUSDT"],
+                clusters=V20_HISTORICAL_REFERENCE["clusters_per_week"],
+            ),
+            "📚 V20 hậu nghiệm: <code>{trades} lệnh gộp</code> | Win <code>{win:.1%}</code> | PF <code>{pf:.2f}</code> | Sharpe <code>{sharpe:.2f}</code> | DD <code>{dd:.2%}</code>".format(
                 trades=V20_HISTORICAL_REFERENCE["trades"],
                 win=V20_HISTORICAL_REFERENCE["win_rate"],
                 pf=V20_HISTORICAL_REFERENCE["profit_factor"],
@@ -475,15 +507,16 @@ def format_heartbeat(scan: dict[str, Any], state: dict[str, Any]) -> str:
                 trusted=float(v21_operations.get("trusted_source_rate", 0.0)),
                 gap=float(v21_operations.get("data_gap_scan_rate", 0.0)),
             ),
-            "📚 V17 hậu nghiệm: <code>{freq:.3f}/tuần</code> | Win <code>{win:.1%}</code> | PF <code>{pf:.2f}</code> | Sharpe <code>{sharpe:.2f}</code> | DD <code>{dd:.2%}</code>".format(
-                freq=V17_HISTORICAL_REFERENCE["trades_per_week"],
+            "📚 V17 hậu nghiệm: <code>{freq:.3f}/coin/tuần</code> | Win <code>{win:.1%}</code> | PF <code>{pf:.2f}</code> | Sharpe <code>{sharpe:.2f}</code> | DD <code>{dd:.2%}</code>".format(
+                freq=V17_HISTORICAL_REFERENCE["trades_per_coin_per_week"],
                 win=V17_HISTORICAL_REFERENCE["win_rate"],
                 pf=V17_HISTORICAL_REFERENCE["profit_factor"],
                 sharpe=V17_HISTORICAL_REFERENCE["sharpe"],
                 dd=V17_HISTORICAL_REFERENCE["max_drawdown"],
             ),
-            "📚 OOS lịch sử: <code>{trades} lệnh</code> | Win <code>{win:.1%}</code> | PF <code>{pf:.2f}</code> | Sharpe <code>{sharpe:.2f}</code>".format(
+            "📚 OOS lịch sử: <code>{trades} lệnh gộp</code> | <code>{freq:.3f}/coin/tuần</code> | Win <code>{win:.1%}</code> | PF <code>{pf:.2f}</code> | Sharpe <code>{sharpe:.2f}</code>".format(
                 trades=HISTORICAL_REFERENCE["trades"],
+                freq=HISTORICAL_REFERENCE["trades_per_coin_per_week"],
                 win=HISTORICAL_REFERENCE["win_rate"],
                 pf=HISTORICAL_REFERENCE["profit_factor"],
                 sharpe=HISTORICAL_REFERENCE["sharpe"],
