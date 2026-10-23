@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import math
 import threading
 from datetime import datetime, timezone
@@ -41,6 +42,13 @@ V17_TRADABLE_SYMBOLS = ("BNBUSDT", "SOLUSDT")
 V17_RISK_PER_TRADE = RISK_PER_TRADE * 0.30
 V17_MAX_SYMBOL_NOTIONAL = MAX_SYMBOL_NOTIONAL * 0.30
 V17_MAX_INITIAL_GROSS = MAX_INITIAL_GROSS * 0.30
+V20_STRATEGY_ID = "CORE4_V20_TREND_BREADTH2_SHADOW"
+V20_FAST_SYMBOLS = V17_TRADABLE_SYMBOLS
+V20_CORE_WEIGHT_WITH_FAST = 0.60
+V20_FAST_WEIGHT = 1.0 - V20_CORE_WEIGHT_WITH_FAST
+V20_MIN_BREADTH = 2
+V20_SMA_SLOPE_DAYS = 20
+V20_MAX_INITIAL_GROSS = MAX_INITIAL_GROSS
 
 
 def utc_iso(milliseconds: int) -> str:
@@ -261,6 +269,165 @@ def qualify_v17_candidates(candidates: list[dict[str, Any]]) -> list[dict[str, A
     return qualified
 
 
+def v20_regime_context(
+    daily_by_symbol: dict[str, list[Candle]], now_ms: int
+) -> dict[str, Any]:
+    """Calculate the frozen causal TREND_BREADTH2 gate for the latest closed day."""
+    completed_by_symbol = {
+        symbol: completed_and_current(candles, now_ms)[0]
+        for symbol, candles in daily_by_symbol.items()
+    }
+    btc = completed_by_symbol.get("BTCUSDT", [])
+    if len(btc) < SMA_DAYS + V20_SMA_SLOPE_DAYS:
+        return {
+            "allowed": False,
+            "side": None,
+            "breadth": 0,
+            "minimum_breadth": V20_MIN_BREADTH,
+            "trend_aligned": False,
+            "reason": "INSUFFICIENT_HISTORY",
+        }
+    btc_sma = sum(candle.close for candle in btc[-SMA_DAYS:]) / SMA_DAYS
+    btc_sma_lag = (
+        sum(
+            candle.close
+            for candle in btc[-(SMA_DAYS + V20_SMA_SLOPE_DAYS) : -V20_SMA_SLOPE_DAYS]
+        )
+        / SMA_DAYS
+    )
+    btc_close = btc[-1].close
+    side = "LONG" if btc_close > btc_sma else "SHORT" if btc_close < btc_sma else None
+    slope = btc_sma - btc_sma_lag
+    trend_aligned = bool(
+        (side == "LONG" and slope > 0.0) or (side == "SHORT" and slope < 0.0)
+    )
+    breadth = 0
+    aligned_symbols: list[str] = []
+    if side is not None:
+        for symbol, candles in completed_by_symbol.items():
+            if len(candles) < SMA_DAYS:
+                continue
+            symbol_sma = sum(candle.close for candle in candles[-SMA_DAYS:]) / SMA_DAYS
+            aligned = (side == "LONG" and candles[-1].close > symbol_sma) or (
+                side == "SHORT" and candles[-1].close < symbol_sma
+            )
+            if aligned:
+                breadth += 1
+                aligned_symbols.append(symbol)
+    allowed = bool(side and trend_aligned and breadth >= V20_MIN_BREADTH)
+    return {
+        "allowed": allowed,
+        "side": side,
+        "breadth": breadth,
+        "minimum_breadth": V20_MIN_BREADTH,
+        "aligned_symbols": sorted(aligned_symbols),
+        "trend_aligned": trend_aligned,
+        "btc_close": btc_close,
+        "btc_sma200": btc_sma,
+        "btc_sma200_lag20": btc_sma_lag,
+        "btc_sma200_slope20": slope,
+        "reason": "PASS" if allowed else "TREND_OR_BREADTH_BLOCKED",
+    }
+
+
+def _as_v20_candidate(
+    source: dict[str, Any], sleeve: str, weight: float, context: dict[str, Any]
+) -> dict[str, Any]:
+    candidate = copy.deepcopy(source)
+    plan = candidate["plan"]
+    symbol = str(plan["symbol"])
+    side = str(plan["side"])
+    risk_budget = RISK_PER_TRADE * weight
+    symbol_cap = MAX_SYMBOL_NOTIONAL * weight
+    risk_fraction = abs(float(plan["entry"]) - float(plan["stop_loss"])) / float(
+        plan["entry"]
+    )
+    plan["capital_at_risk_fraction"] = risk_budget
+    candidate.update(
+        signal_id=f"CORE4V20{str(sleeve).upper()}:{symbol}:{side}:{candidate['entry_time_ms']}",
+        strategy_id=V20_STRATEGY_ID,
+        sleeve=str(sleeve).upper(),
+        shadow_version="V20",
+        shadow_only=True,
+        exit_channel=EXIT_CHANNEL if sleeve == "CORE" else V17_EXIT_CHANNEL,
+        quality_tier=f"V20_{str(sleeve).upper()}_SHADOW",
+        quality_label=f"V20 {str(sleeve).upper()} SHADOW",
+        notional_fraction_requested=min(symbol_cap, risk_budget / risk_fraction),
+        v20_regime_side=context.get("side"),
+        v20_regime_breadth=int(context.get("breadth", 0)),
+        v20_regime_min_breadth=V20_MIN_BREADTH,
+        v20_trend_aligned=bool(context.get("trend_aligned", False)),
+        v20_btc_sma200_slope20=context.get("btc_sma200_slope20"),
+    )
+    return candidate
+
+
+def build_v20_candidates(
+    daily_by_symbol: dict[str, list[Candle]],
+    now_ms: int,
+    symbols: tuple[str, ...] | None = None,
+    active_keys: set[tuple[str, str]] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+    """Build the frozen V20 CORE+FAST request set for one daily decision."""
+    universe = symbols or tuple(daily_by_symbol)
+    occupied = active_keys or set()
+    core_raw = [
+        candidate
+        for symbol in universe
+        if ("CORE", symbol) not in occupied
+        if (candidate := evaluate_candidate(symbol, daily_by_symbol, now_ms)) is not None
+    ]
+    classify_cross_market_candidates(core_raw)
+    fast_raw = [
+        candidate
+        for symbol in universe
+        if ("FAST", symbol) not in occupied
+        if (candidate := evaluate_v17_candidate(symbol, daily_by_symbol, now_ms))
+        is not None
+    ]
+    fast_confirmed = len(
+        {str(candidate["plan"]["symbol"]) for candidate in fast_raw}
+    ) >= CROSS_MARKET_MIN_CONFIRMATIONS
+    context = v20_regime_context(daily_by_symbol, now_ms)
+    fast_qualified = qualify_v17_candidates(fast_raw)
+    fast_qualified = [
+        candidate
+        for candidate in fast_qualified
+        if candidate["plan"]["symbol"] in V20_FAST_SYMBOLS
+        and candidate["plan"]["side"] == context.get("side")
+    ]
+    fast_active = bool(fast_confirmed and context.get("allowed") and fast_qualified)
+    context = {
+        **context,
+        "fast_confirmed": fast_confirmed,
+        "fast_active": fast_active,
+        "fast_symbols": sorted(
+            str(candidate["plan"]["symbol"]) for candidate in fast_qualified
+        )
+        if fast_active
+        else [],
+    }
+    core_weight = V20_CORE_WEIGHT_WITH_FAST if fast_active else 1.0
+    candidates = [
+        _as_v20_candidate(candidate, "CORE", core_weight, context)
+        for candidate in core_raw
+    ]
+    if fast_active:
+        candidates.extend(
+            _as_v20_candidate(candidate, "FAST", V20_FAST_WEIGHT, context)
+            for candidate in fast_qualified
+        )
+    cluster_risk_fraction = sum(
+        float(candidate["plan"]["capital_at_risk_fraction"])
+        for candidate in candidates
+    )
+    for candidate in candidates:
+        candidate["portfolio_risk_count"] = len(candidates)
+        candidate["portfolio_risk_fraction"] = cluster_risk_fraction
+        candidate["v20_fast_active"] = fast_active
+    return candidates, context
+
+
 def classify_cross_market_candidates(
     candidates: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
@@ -311,6 +478,8 @@ def new_position(signal: dict[str, Any], equity: float, notional_fraction: float
         "signal_id": signal["signal_id"],
         "strategy_id": signal.get("strategy_id", "CORE4_V7_BETA_REGIME_DONCHIAN"),
         "shadow_only": bool(signal.get("shadow_only", False)),
+        "shadow_version": signal.get("shadow_version"),
+        "sleeve": signal.get("sleeve"),
         "exit_channel": int(signal.get("exit_channel", EXIT_CHANNEL)),
         "quality_tier": signal.get("quality_tier", QUALITY_STANDARD),
         "quality_label": signal.get("quality_label", "V7 STANDARD"),
@@ -376,6 +545,9 @@ def _fill(
         "quality_label": position.get("quality_label", "V7 STANDARD"),
         "strategy_id": position.get("strategy_id", "CORE4_V7_BETA_REGIME_DONCHIAN"),
         "shadow_only": bool(position.get("shadow_only", False)),
+        "shadow_version": position.get("shadow_version"),
+        "sleeve": position.get("sleeve"),
+        "exit_channel": int(position.get("exit_channel", EXIT_CHANNEL)),
         "reason": reason,
         "time_ms": time_ms,
         "time_utc": utc_iso(time_ms),
@@ -410,6 +582,9 @@ def _close_trade(state: dict[str, Any], position: dict[str, Any]) -> dict[str, A
         "quality_label": position.get("quality_label", "V7 STANDARD"),
         "strategy_id": position.get("strategy_id", "CORE4_V7_BETA_REGIME_DONCHIAN"),
         "shadow_only": bool(position.get("shadow_only", False)),
+        "shadow_version": position.get("shadow_version"),
+        "sleeve": position.get("sleeve"),
+        "exit_channel": int(position.get("exit_channel", EXIT_CHANNEL)),
         "cross_market_count": int(position.get("cross_market_count", 1)),
         "cross_market_symbols": list(
             position.get("cross_market_symbols", [position["symbol"]])
@@ -572,6 +747,33 @@ def ensure_v17_state(state: dict[str, Any]) -> dict[str, Any]:
         ("active_positions", []),
         ("closed_trades", []),
         ("events", []),
+    ):
+        shadow.setdefault(key, default)
+    return shadow
+
+
+def ensure_v20_state(state: dict[str, Any]) -> dict[str, Any]:
+    shadow = state.setdefault(
+        "shadow_v20",
+        {
+            "strategy_id": V20_STRATEGY_ID,
+            "cash": 1.0,
+            "equity": 1.0,
+            "signals": [],
+            "active_positions": [],
+            "closed_trades": [],
+            "events": [],
+            "last_regime_context": {},
+        },
+    )
+    for key, default in (
+        ("cash", 1.0),
+        ("equity", 1.0),
+        ("signals", []),
+        ("active_positions", []),
+        ("closed_trades", []),
+        ("events", []),
+        ("last_regime_context", {}),
     ):
         shadow.setdefault(key, default)
     return shadow
@@ -1018,6 +1220,183 @@ class ForwardEngine:
             shadow["closed_trades"] = shadow.get("closed_trades", [])[-500:]
             shadow["events"] = shadow.get("events", [])[-1000:]
 
+            v20 = ensure_v20_state(state)
+            v20_active: list[dict[str, Any]] = []
+            for position in v20.get("active_positions", []):
+                try:
+                    position_source = daily_sources[position["symbol"]]
+                    if (
+                        self.config.require_futures_for_signals
+                        and position_source != SOURCE_USDM_FUTURES
+                    ):
+                        raise RuntimeError(
+                            f"untrusted daily data source: {position_source}"
+                        )
+                    events, trade = self._replay_position(
+                        v20, position, daily_by_symbol[position["symbol"]], now_ms
+                    )
+                    notifications.extend(events)
+                    if trade is None:
+                        position["status"] = "OPEN"
+                        v20_active.append(position)
+                    else:
+                        notifications.append(
+                            {
+                                "event_id": f"{position['signal_id']}:CLOSED",
+                                "reason": "TRADE_CLOSED",
+                                "trade": trade,
+                            }
+                        )
+                except Exception as exc:
+                    errors.append(
+                        f"{position['symbol']} V20 replay: {type(exc).__name__}: {exc}"
+                    )
+                    position["status"] = "DATA_GAP"
+                    v20_active.append(position)
+            v20["active_positions"] = v20_active
+
+            v20_active_keys = {
+                (
+                    str(position.get("sleeve", "CORE")),
+                    str(position["symbol"]),
+                )
+                for position in v20["active_positions"]
+            }
+            v20_raw, v20_context = build_v20_candidates(
+                daily_by_symbol,
+                now_ms,
+                symbols=self.symbols,
+                active_keys=v20_active_keys,
+            )
+            v20["last_regime_context"] = v20_context
+            v20_pending: list[dict[str, Any]] = []
+            v20_existing_ids = {
+                signal["signal_id"] for signal in v20.get("signals", [])
+            }
+            for candidate in v20_raw:
+                key = (str(candidate.get("sleeve", "CORE")), candidate["plan"]["symbol"])
+                if key in v20_active_keys or candidate["signal_id"] in v20_existing_ids:
+                    continue
+                symbol = candidate["plan"]["symbol"]
+                _, current = completed_and_current(daily_by_symbol[symbol], now_ms)
+                assert current is not None
+                candidate["current_price"] = current.close
+                candidate["detected_at_utc"] = utc_iso(now_ms)
+                candidate["entry_window_seconds"] = self.config.max_entry_lag_seconds
+                candidate["max_chase_bps"] = self.config.max_chase_bps
+                candidate["data_sources"] = {
+                    peer: daily_sources[peer]
+                    for peer in set(
+                        candidate.get("cross_market_symbols", [symbol])
+                        + ["BTCUSDT"]
+                    )
+                }
+                candidate["source_gate_passed"] = all(
+                    source == SOURCE_USDM_FUTURES
+                    for source in candidate["data_sources"].values()
+                )
+                lag_seconds = max(
+                    0.0, (now_ms - candidate["entry_time_ms"]) / 1000.0
+                )
+                direction = 1.0 if candidate["plan"]["side"] == "LONG" else -1.0
+                chase_bps = direction * (
+                    current.close / candidate["plan"]["entry"] - 1.0
+                ) * 10_000.0
+                candidate["entry_lag_seconds"] = lag_seconds
+                candidate["directional_chase_bps"] = chase_bps
+                if (
+                    self.config.require_futures_for_signals
+                    and not candidate["source_gate_passed"]
+                ):
+                    candidate["status"] = "SUPPRESSED_SOURCE_MISMATCH"
+                    v20["signals"].append(candidate)
+                    notifications.append(candidate)
+                elif errors:
+                    candidate["status"] = "SUPPRESSED_DEGRADED"
+                    v20["signals"].append(candidate)
+                    notifications.append(candidate)
+                elif lag_seconds > self.config.max_entry_lag_seconds:
+                    candidate["status"] = "SUPPRESSED_STALE"
+                    v20["signals"].append(candidate)
+                    notifications.append(candidate)
+                elif chase_bps > self.config.max_chase_bps:
+                    candidate["status"] = "SUPPRESSED_CHASE"
+                    v20["signals"].append(candidate)
+                    notifications.append(candidate)
+                else:
+                    v20_pending.append(candidate)
+                v20_existing_ids.add(candidate["signal_id"])
+
+            v20_unrealized = sum(
+                _direction(position)
+                * position["remaining_quantity"]
+                * (marks[position["symbol"]] - position["entry"])
+                for position in v20["active_positions"]
+                if position["symbol"] in marks
+            )
+            v20_equity = float(v20["cash"]) + v20_unrealized
+            v20_existing_gross = sum(
+                position["remaining_quantity"] * marks[position["symbol"]]
+                for position in v20["active_positions"]
+                if position["symbol"] in marks
+            ) / v20_equity
+            v20_requested = sum(
+                signal["notional_fraction_requested"] for signal in v20_pending
+            )
+            v20_available = max(
+                0.0, V20_MAX_INITIAL_GROSS - v20_existing_gross
+            )
+            v20_scale = (
+                min(1.0, v20_available / v20_requested)
+                if v20_requested > 0.0
+                else 0.0
+            )
+            for signal in v20_pending:
+                allocated = signal["notional_fraction_requested"] * v20_scale
+                signal["notional_fraction_allocated"] = allocated
+                if allocated <= 0.0:
+                    signal["status"] = "SUPPRESSED_CAPACITY"
+                    v20["signals"].append(signal)
+                    notifications.append(signal)
+                    continue
+                signal["status"] = "OPEN"
+                position = new_position(signal, v20_equity, allocated)
+                v20["cash"] -= position["entry_fee"]
+                v20["signals"].append(signal)
+                v20["active_positions"].append(position)
+                notifications.append(signal)
+                try:
+                    events, trade = self._replay_position(
+                        v20, position, daily_by_symbol[position["symbol"]], now_ms
+                    )
+                    notifications.extend(events)
+                    if trade is not None:
+                        v20["active_positions"].remove(position)
+                        notifications.append(
+                            {
+                                "event_id": f"{position['signal_id']}:CLOSED",
+                                "reason": "TRADE_CLOSED",
+                                "trade": trade,
+                            }
+                        )
+                except Exception as exc:
+                    errors.append(
+                        f"{position['symbol']} V20 initial replay: {type(exc).__name__}: {exc}"
+                    )
+                    position["status"] = "DATA_GAP"
+
+            v20_unrealized = sum(
+                _direction(position)
+                * position["remaining_quantity"]
+                * (marks[position["symbol"]] - position["entry"])
+                for position in v20["active_positions"]
+                if position["symbol"] in marks
+            )
+            v20["equity"] = float(v20["cash"]) + v20_unrealized
+            v20["signals"] = v20.get("signals", [])[-1000:]
+            v20["closed_trades"] = v20.get("closed_trades", [])[-1000:]
+            v20["events"] = v20.get("events", [])[-2000:]
+
             unrealized = sum(
                 _direction(position)
                 * position["remaining_quantity"]
@@ -1054,6 +1433,10 @@ class ForwardEngine:
                 "v17_shadow_active": len(shadow["active_positions"]),
                 "v17_shadow_closed": len(shadow["closed_trades"]),
                 "v17_shadow_equity": shadow["equity"],
+                "v20_shadow_active": len(v20["active_positions"]),
+                "v20_shadow_closed": len(v20["closed_trades"]),
+                "v20_shadow_equity": v20["equity"],
+                "v20_regime_context": v20.get("last_regime_context", {}),
                 "errors": errors,
                 "source_mismatches": source_mismatches,
                 "require_futures_for_signals": self.config.require_futures_for_signals,

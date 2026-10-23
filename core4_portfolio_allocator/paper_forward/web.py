@@ -15,6 +15,7 @@ from .decision_support import decision_support_payload, forward_assessment
 from .engine import ForwardEngine
 from .telegram import (
     TelegramSender,
+    bot_display,
     format_heartbeat,
     format_position_event,
     format_readiness_alert,
@@ -83,7 +84,7 @@ def scan_and_notify(startup: bool = False, force_heartbeat: bool = False) -> dic
             elif item.get("status") == "OPEN":
                 text = format_signal(item)
             elif notify_suppressed:
-                label = "CORE4 V17 SHADOW" if item.get("shadow_only") else "CORE4 V7"
+                label = bot_display(item)
                 text = f"⚠️ <b>{label} BỎ QUA {item['plan']['symbol']}</b>\n• Lý do: <code>{item['status']}</code>\n🔒 PAPER ONLY"
             else:
                 continue
@@ -148,6 +149,7 @@ def health_payload(state: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         "service": "core4-v7-paper-forward",
         "strategy_id": "CORE4_V7_BETA_REGIME_DONCHIAN",
         "shadow_strategy_id": "CORE4_V17_ALT_FAST_CONFIRMED_DAILY",
+        "v20_shadow_strategy_id": "CORE4_V20_TREND_BREADTH2_SHADOW",
         "paper_only": True,
         "live_trading": False,
         "spec_sha256": spec_sha256(),
@@ -194,6 +196,9 @@ class Handler(BaseHTTPRequestHandler):
                     "v17_shadow_signals": state.get("shadow_v17", {}).get(
                         "signals", []
                     )[-50:],
+                    "v20_shadow_signals": state.get("shadow_v20", {}).get(
+                        "signals", []
+                    )[-100:],
                 }
             )
             return
@@ -202,6 +207,9 @@ class Handler(BaseHTTPRequestHandler):
                 {
                     "active_positions": state.get("active_positions", []),
                     "v17_shadow_positions": state.get("shadow_v17", {}).get(
+                        "active_positions", []
+                    ),
+                    "v20_shadow_positions": state.get("shadow_v20", {}).get(
                         "active_positions", []
                     ),
                 }
@@ -215,6 +223,7 @@ class Handler(BaseHTTPRequestHandler):
                     "closed_trades": state.get("closed_trades", []),
                     "summary": forward_assessment(state),
                     "v17_shadow": state.get("shadow_v17", {}),
+                    "v20_shadow": state.get("shadow_v20", {}),
                 }
             )
             return

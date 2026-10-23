@@ -37,12 +37,14 @@ from core4_portfolio_allocator.paper_forward.decision_support import (
 from core4_portfolio_allocator.paper_forward.engine import (
     DAY_MS,
     ForwardEngine,
+    build_v20_candidates,
     classify_cross_market_candidates,
     evaluate_candidate,
     evaluate_v17_candidate,
     new_position,
     process_position_path,
     qualify_v17_candidates,
+    v20_regime_context,
 )
 from core4_portfolio_allocator.paper_forward.futures_stream import (
     BinanceFuturesStreamClient,
@@ -720,6 +722,73 @@ class PaperForwardTests(unittest.TestCase):
             self.assertEqual(len(state["signals"]), 4)
             self.assertEqual(len(state["shadow_v17"]["signals"]), 2)
             self.assertEqual(result["v17_shadow_active"], 2)
+
+    def test_v20_trend_breadth_gate_and_risk_split(self) -> None:
+        markets = daily_series("LONG")
+        now_ms = markets["BTCUSDT"][-1].open_time_ms + 60_000
+        context = v20_regime_context(markets, now_ms)
+        candidates, candidate_context = build_v20_candidates(markets, now_ms)
+
+        self.assertTrue(context["allowed"])
+        self.assertEqual(context["side"], "LONG")
+        self.assertEqual(context["breadth"], 4)
+        self.assertTrue(candidate_context["fast_active"])
+        self.assertEqual(
+            {(candidate["sleeve"], candidate["plan"]["symbol"]) for candidate in candidates},
+            {
+                ("CORE", "BTCUSDT"),
+                ("CORE", "ETHUSDT"),
+                ("CORE", "SOLUSDT"),
+                ("CORE", "BNBUSDT"),
+                ("FAST", "SOLUSDT"),
+                ("FAST", "BNBUSDT"),
+            },
+        )
+        core = next(candidate for candidate in candidates if candidate["sleeve"] == "CORE")
+        fast = next(candidate for candidate in candidates if candidate["sleeve"] == "FAST")
+        self.assertAlmostEqual(core["plan"]["capital_at_risk_fraction"], 0.0021)
+        self.assertAlmostEqual(fast["plan"]["capital_at_risk_fraction"], 0.0014)
+        self.assertTrue(all(candidate["shadow_version"] == "V20" for candidate in candidates))
+        message = format_signal(
+            fast
+            | {
+                "current_price": fast["plan"]["entry"],
+                "entry_lag_seconds": 60.0,
+                "directional_chase_bps": 0.0,
+                "notional_fraction_allocated": 0.02,
+                "entry_window_seconds": 600,
+                "max_chase_bps": 40.0,
+            }
+        )
+        self.assertIn("CORE4 V20 SHADOW", message)
+        self.assertIn("V20 FAST PAPER-SHADOW", message)
+        self.assertIn("Breadth <b>4/4</b>", message)
+
+    def test_engine_keeps_v20_combined_ledger_separate(self) -> None:
+        markets = daily_series("LONG")
+        now_ms = markets["BTCUSDT"][-1].open_time_ms + 60_000
+        with tempfile.TemporaryDirectory() as directory:
+            config = RuntimeConfig(
+                Path(directory) / "state.json", 60, 3600, 600, 40.0, 1500, False, True, True
+            )
+            store = ForwardStore(config.state_path, spec_sha256())
+            engine = ForwardEngine(client=FakeClient(markets), store=store, config=config)
+            result = engine.scan(now_ms)
+            state = result["state"]
+            v20 = state["shadow_v20"]
+
+            self.assertEqual(len(state["active_positions"]), 4)
+            self.assertEqual(len(v20["active_positions"]), 6)
+            self.assertEqual(
+                sum(position["symbol"] == "BNBUSDT" for position in v20["active_positions"]),
+                2,
+            )
+            self.assertEqual(
+                {position["sleeve"] for position in v20["active_positions"]},
+                {"CORE", "FAST"},
+            )
+            self.assertEqual(result["v20_shadow_active"], 6)
+            self.assertTrue(v20["last_regime_context"]["fast_active"])
 
     def test_readiness_playbook_and_alert_are_watch_only(self) -> None:
         markets = daily_series("LONG")

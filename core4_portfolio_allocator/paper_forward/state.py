@@ -40,6 +40,16 @@ class ForwardStore:
                 "closed_trades": [],
                 "events": [],
             },
+            "shadow_v20": {
+                "strategy_id": "CORE4_V20_TREND_BREADTH2_SHADOW",
+                "cash": 1.0,
+                "equity": 1.0,
+                "signals": [],
+                "active_positions": [],
+                "closed_trades": [],
+                "events": [],
+                "last_regime_context": {},
+            },
             "delivered_ids": [],
             "errors": [],
         }
