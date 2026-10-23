@@ -50,6 +50,9 @@ from core4_portfolio_allocator.paper_forward.futures_stream import (
     BinanceFuturesStreamClient,
     parse_archive_zip,
 )
+from core4_portfolio_allocator.paper_forward.production_readiness import (
+    production_readiness,
+)
 from core4_portfolio_allocator.paper_forward.state import ForwardStore
 from core4_portfolio_allocator.paper_forward.telegram import (
     format_heartbeat,
@@ -789,6 +792,8 @@ class PaperForwardTests(unittest.TestCase):
             )
             self.assertEqual(result["v20_shadow_active"], 6)
             self.assertTrue(v20["last_regime_context"]["fast_active"])
+            self.assertFalse(state["production_readiness_v21"]["gate_passed"])
+            self.assertEqual(state["v21_telemetry"]["scan_samples"], 1)
 
     def test_readiness_playbook_and_alert_are_watch_only(self) -> None:
         markets = daily_series("LONG")
@@ -852,6 +857,68 @@ class PaperForwardTests(unittest.TestCase):
         self.assertEqual(metrics["clusters"], 2)
         self.assertEqual(metrics["multi_symbol_clusters"], 1)
         self.assertEqual(metrics["win_rate"], 0.5)
+
+    def test_v21_gate_stays_locked_without_forward_evidence(self) -> None:
+        state = {
+            "shadow_v20": {
+                "created_utc": "2026-10-23T00:00:00+00:00",
+                "closed_trades": [],
+                "signals": [],
+            },
+            "v21_telemetry": {
+                "started_utc": "2026-10-23T00:00:00+00:00",
+                "scan_samples": 1,
+                "healthy_scans": 1,
+                "trusted_source_scans": 1,
+                "data_gap_scans": 0,
+                "critical_error_scans": 0,
+                "incidents": [],
+            },
+        }
+        readiness = production_readiness(state, "2026-10-23T01:00:00+00:00")
+        self.assertFalse(readiness["gate_passed"])
+        self.assertFalse(readiness["real_money_authorized"])
+        self.assertEqual(readiness["status"], "LOCKED_INSUFFICIENT_FORWARD_EVIDENCE")
+        self.assertFalse(readiness["checks"]["closed_clusters"]["passed"])
+
+    def test_v21_gate_requires_manual_approval_even_after_all_checks_pass(self) -> None:
+        symbols = ("BTCUSDT", "ETHUSDT", "SOLUSDT", "BNBUSDT")
+        trades = []
+        for index in range(20):
+            winning = index % 5 not in {3, 4}
+            trades.append(
+                {
+                    "entry_time_utc": f"2026-06-{index + 1:02d}T00:00:00+00:00",
+                    "symbol": symbols[index % len(symbols)],
+                    "net_pnl": 0.002 if winning else -0.001,
+                    "initial_risk_cash": 0.005,
+                    "realized_r": 0.4 if winning else -0.2,
+                }
+            )
+        state = {
+            "shadow_v20": {
+                "created_utc": "2026-06-01T00:00:00+00:00",
+                "closed_trades": trades,
+                "signals": [],
+            },
+            "v21_telemetry": {
+                "started_utc": "2026-06-01T00:00:00+00:00",
+                "scan_samples": 100_000,
+                "healthy_scans": 100_000,
+                "trusted_source_scans": 100_000,
+                "data_gap_scans": 0,
+                "critical_error_scans": 0,
+                "incidents": [],
+            },
+        }
+        readiness = production_readiness(state, "2026-10-23T00:00:00+00:00")
+        self.assertTrue(readiness["gate_passed"])
+        self.assertEqual(readiness["passed_checks"], readiness["total_checks"])
+        self.assertTrue(readiness["manual_approval_required"])
+        self.assertFalse(readiness["real_money_authorized"])
+        self.assertEqual(
+            readiness["status"], "PAPER_GATE_PASS_MANUAL_APPROVAL_REQUIRED"
+        )
 
 
 if __name__ == "__main__":

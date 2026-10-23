@@ -144,12 +144,16 @@ def health_payload(state: dict[str, Any]) -> tuple[dict[str, Any], bool]:
     startup_grace = time.monotonic() - PROCESS_START_MONOTONIC <= stale_after
     scan_fresh = age_seconds is not None and age_seconds <= stale_after
     healthy = not BACKGROUND_SCAN_ENABLED or (thread_alive and (scan_fresh or startup_grace))
+    v21 = state.get("production_readiness_v21", {})
     payload = {
         "status": "ok" if healthy else "degraded",
         "service": "core4-v7-paper-forward",
         "strategy_id": "CORE4_V7_BETA_REGIME_DONCHIAN",
         "shadow_strategy_id": "CORE4_V17_ALT_FAST_CONFIRMED_DAILY",
         "v20_shadow_strategy_id": "CORE4_V20_TREND_BREADTH2_SHADOW",
+        "v21_readiness_gate_id": "CORE4_V21_PRODUCTION_READINESS",
+        "v21_readiness_status": v21.get("status", "INITIALIZING"),
+        "real_money_authorized": False,
         "paper_only": True,
         "live_trading": False,
         "spec_sha256": spec_sha256(),
@@ -160,6 +164,7 @@ def health_payload(state: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         "background_thread_alive": thread_alive,
         "decision_support_endpoint": "/analysis",
         "performance_endpoint": "/performance",
+        "readiness_endpoint": "/readiness",
     }
     return payload, healthy
 
@@ -225,6 +230,19 @@ class Handler(BaseHTTPRequestHandler):
                     "v17_shadow": state.get("shadow_v17", {}),
                     "v20_shadow": state.get("shadow_v20", {}),
                 }
+            )
+            return
+        if parsed.path == "/readiness":
+            self.send_json(
+                state.get(
+                    "production_readiness_v21",
+                    {
+                        "gate_id": "CORE4_V21_PRODUCTION_READINESS",
+                        "status": "INITIALIZING",
+                        "gate_passed": False,
+                        "real_money_authorized": False,
+                    },
+                )
             )
             return
         if parsed.path == "/analysis":

@@ -15,6 +15,7 @@ from .clients import (
 )
 from .config import RuntimeConfig, load_locked_spec, spec_sha256
 from .decision_support import annotate_market_readiness, update_readiness_state
+from .production_readiness import update_production_readiness
 from .state import ForwardStore, now_iso
 
 
@@ -757,6 +758,7 @@ def ensure_v20_state(state: dict[str, Any]) -> dict[str, Any]:
         "shadow_v20",
         {
             "strategy_id": V20_STRATEGY_ID,
+            "created_utc": now_iso(),
             "cash": 1.0,
             "equity": 1.0,
             "signals": [],
@@ -767,6 +769,7 @@ def ensure_v20_state(state: dict[str, Any]) -> dict[str, Any]:
         },
     )
     for key, default in (
+        ("created_utc", now_iso()),
         ("cash", 1.0),
         ("equity", 1.0),
         ("signals", []),
@@ -922,6 +925,9 @@ class ForwardEngine:
                     ],
                     "require_futures_for_signals": self.config.require_futures_for_signals,
                 }
+                scan["v21_readiness"] = update_production_readiness(
+                    state, scan, scan["time_utc"]
+                )
                 state["last_scan"] = scan
                 self.store.save(state)
                 return {**scan, "notifications": [], "state": state}
@@ -1441,6 +1447,9 @@ class ForwardEngine:
                 "source_mismatches": source_mismatches,
                 "require_futures_for_signals": self.config.require_futures_for_signals,
             }
+            scan["v21_readiness"] = update_production_readiness(
+                state, scan, scan["time_utc"]
+            )
             state["last_scan"] = scan
             self.store.save(state)
             return {**scan, "notifications": notifications, "state": state}

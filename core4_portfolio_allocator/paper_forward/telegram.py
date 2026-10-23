@@ -91,6 +91,7 @@ def format_startup(scan: dict[str, Any]) -> str:
     ready = sum(group.get("status") == "READY" for group in scan.get("groups", []))
     trusted, fallback = source_summary(scan)
     active = scan.get("state", {}).get("active_positions", [])
+    v21 = scan.get("v21_readiness", {})
     lines = [
             "💎📡 <b>CORE4 V7 PAPER-FORWARD ĐÃ KHỞI ĐỘNG</b>",
             "━━━━━━━━━━━━━━━━━━━━━━━━",
@@ -102,6 +103,12 @@ def format_startup(scan: dict[str, Any]) -> str:
             "⚠️ Tín hiệu cùng kỳ là một cụm tương quan, không phải các cược độc lập.",
             "🧪 V17 shadow: <b>BNB/SOL 1D nhanh + xác nhận ≥2/4</b> | rủi ro <b>0,105%/lệnh</b>",
             "🧭 V20 shadow: <b>CORE + FAST theo TREND_BREADTH2</b> | ledger riêng / watch only",
+            "🛡️ V21 go-live: <b>KHÓA</b> | đạt <b>{passed}/{total}</b> cổng | Forward <code>{days:.1f}/90 ngày</code> | Cụm <code>{clusters}/20</code>".format(
+                passed=int(v21.get("passed_checks", 0)),
+                total=int(v21.get("total_checks", 11)),
+                days=float(v21.get("forward", {}).get("observation_days", 0.0)),
+                clusters=int(v21.get("forward", {}).get("clusters", 0)),
+            ),
             "🧭 MTF 1h/4h: <b>CHỈ BỐI CẢNH / KHÔNG TỰ SINH LỆNH</b>",
             f"🧾 Nguồn Binance Futures xác minh: <b>{trusted}/4</b>",
             f"📂 Vị thế đang mở: <b>{len(active)}</b>",
@@ -298,6 +305,11 @@ def format_heartbeat(scan: dict[str, Any], state: dict[str, Any]) -> str:
     v20_pf_label = f"{v20_pf:.2f}" if math.isfinite(v20_pf) else "∞"
     v20_active = v20.get("active_positions", [])
     v20_context = v20.get("last_regime_context", {})
+    v21 = state.get("production_readiness_v21", {})
+    v21_forward = v21.get("forward", {})
+    v21_operations = v21.get("operations", {})
+    v21_pf = float(v21_forward.get("profit_factor", 0.0))
+    v21_pf_label = f"{v21_pf:.2f}" if math.isfinite(v21_pf) else "∞"
     standard_open = sum(
         position.get("quality_tier", "STANDARD") == "STANDARD"
         for position in active
@@ -343,6 +355,23 @@ def format_heartbeat(scan: dict[str, Any], state: dict[str, Any]) -> str:
             "🧯 V20 stress gộp: PF <code>{pf:.2f}</code> | DD <code>{dd:.2%}</code>".format(
                 pf=V20_HISTORICAL_REFERENCE["stress_profit_factor"],
                 dd=V20_HISTORICAL_REFERENCE["stress_max_drawdown"],
+            ),
+            "🛡️ V21 go-live: <b>KHÓA</b> | đạt <b>{passed}/{total}</b> cổng | <code>{days:.1f}/90 ngày</code> | <code>{clusters}/20 cụm</code>".format(
+                passed=int(v21.get("passed_checks", 0)),
+                total=int(v21.get("total_checks", 11)),
+                days=float(v21_forward.get("observation_days", 0.0)),
+                clusters=int(v21_forward.get("clusters", 0)),
+            ),
+            "📐 V21 forward: Win <code>{win:.1%}</code> | PF <code>{pf}</code> | Mean <code>{mean:+.3f}R</code> | DD <code>{dd:.2%}</code>".format(
+                win=float(v21_forward.get("win_rate", 0.0)),
+                pf=v21_pf_label,
+                mean=float(v21_forward.get("mean_cluster_r", 0.0)),
+                dd=float(v21_forward.get("maximum_drawdown", 0.0)),
+            ),
+            "⚙️ V21 vận hành: scan tốt <code>{healthy:.2%}</code> | Futures tin cậy <code>{trusted:.2%}</code> | data-gap <code>{gap:.3%}</code>".format(
+                healthy=float(v21_operations.get("healthy_scan_rate", 0.0)),
+                trusted=float(v21_operations.get("trusted_source_rate", 0.0)),
+                gap=float(v21_operations.get("data_gap_scan_rate", 0.0)),
             ),
             "📚 V17 hậu nghiệm: <code>{freq:.3f}/tuần</code> | Win <code>{win:.1%}</code> | PF <code>{pf:.2f}</code> | Sharpe <code>{sharpe:.2f}</code> | DD <code>{dd:.2%}</code>".format(
                 freq=V17_HISTORICAL_REFERENCE["trades_per_week"],
