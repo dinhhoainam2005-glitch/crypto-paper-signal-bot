@@ -22,6 +22,7 @@ from .telegram import (
     format_signal,
     format_startup,
     format_trade_closed,
+    format_v24_watch,
 )
 
 
@@ -77,6 +78,8 @@ def scan_and_notify(startup: bool = False, force_heartbeat: bool = False) -> dic
                 text = format_trade_closed(item["trade"])
             elif item.get("reason") == "READINESS_ALERT":
                 text = format_readiness_alert(item)
+            elif item.get("reason") == "V24_EARLY_WATCH":
+                text = format_v24_watch(item)
             elif item.get("reason"):
                 if item.get("signal_id") in closed_signal_ids and item.get("remaining_fraction", 1.0) <= 1e-12:
                     continue
@@ -152,6 +155,7 @@ def health_payload(state: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         "shadow_strategy_id": "CORE4_V17_ALT_FAST_CONFIRMED_DAILY",
         "v20_shadow_strategy_id": "CORE4_V20_TREND_BREADTH2_SHADOW",
         "v22_execution_strategy_id": "CORE4_V22_EXECUTION_TRUTH_SHADOW",
+        "v24_watch_strategy_id": "CORE4_V24_EARLY_EXECUTION_WATCH",
         "v21_readiness_gate_id": "CORE4_V21_PRODUCTION_READINESS",
         "v21_readiness_status": v21.get("status", "INITIALIZING"),
         "real_money_authorized": False,
@@ -208,6 +212,9 @@ class Handler(BaseHTTPRequestHandler):
                     "v22_execution_signals": state.get("shadow_v22", {}).get(
                         "signals", []
                     )[-100:],
+                    "v24_watch_alerts": state.get("watch_v24", {}).get(
+                        "alerts", []
+                    )[-100:],
                 }
             )
             return
@@ -237,6 +244,7 @@ class Handler(BaseHTTPRequestHandler):
                     "v17_shadow": state.get("shadow_v17", {}),
                     "v20_shadow": state.get("shadow_v20", {}),
                     "v22_execution": state.get("shadow_v22", {}),
+                    "v24_watch": state.get("watch_v24", {}),
                 }
             )
             return

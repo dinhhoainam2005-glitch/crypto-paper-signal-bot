@@ -445,6 +445,11 @@ class BinanceFuturesStreamClient:
         candles, _ = self.daily_candles_with_source(symbol, limit)
         return candles
 
+    def four_hour_candles_with_source(
+        self, symbol: str, limit: int = 3
+    ) -> tuple[list[Candle], str]:
+        return self.gap_client.four_hour_candles_with_source(symbol, limit)
+
     def _backfill_completed_minute_archives(
         self, symbol: str, start_ms: int, end_ms: int
     ) -> int:

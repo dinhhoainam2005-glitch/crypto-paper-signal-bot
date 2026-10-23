@@ -36,7 +36,9 @@ from core4_portfolio_allocator.paper_forward.decision_support import (
 )
 from core4_portfolio_allocator.paper_forward.engine import (
     DAY_MS,
+    FOUR_HOUR_MS,
     ForwardEngine,
+    build_v24_watch_items,
     build_v22_execution_signal,
     build_v20_candidates,
     classify_cross_market_candidates,
@@ -45,6 +47,7 @@ from core4_portfolio_allocator.paper_forward.engine import (
     new_position,
     process_position_path,
     qualify_v17_candidates,
+    v24_due_boundary,
     v20_regime_context,
 )
 from core4_portfolio_allocator.paper_forward.futures_stream import (
@@ -60,6 +63,7 @@ from core4_portfolio_allocator.paper_forward.telegram import (
     format_readiness_alert,
     format_signal,
     format_startup,
+    format_v24_watch,
 )
 
 
@@ -100,8 +104,13 @@ def daily_series(side: str = "LONG") -> dict[str, list[Candle]]:
 
 
 class FakeClient:
-    def __init__(self, daily: dict[str, list[Candle]]) -> None:
+    def __init__(
+        self,
+        daily: dict[str, list[Candle]],
+        four_hour: dict[str, list[Candle]] | None = None,
+    ) -> None:
         self.daily = daily
+        self.four_hour = four_hour or {symbol: [] for symbol in daily}
 
     def daily_candles(self, symbol: str, limit: int = 260) -> list[Candle]:
         return self.daily[symbol]
@@ -110,6 +119,11 @@ class FakeClient:
         self, symbol: str, start_ms: int, end_ms: int, max_minutes: int
     ) -> list[Candle]:
         return []
+
+    def four_hour_candles_with_source(
+        self, symbol: str, limit: int = 3
+    ) -> tuple[list[Candle], str]:
+        return self.four_hour[symbol][-limit:], SOURCE_USDM_FUTURES
 
     def funding_rates(self, symbol: str, start_ms: int, end_ms: int) -> list[dict]:
         return []
@@ -866,6 +880,91 @@ class PaperForwardTests(unittest.TestCase):
         self.assertAlmostEqual(
             mirrored["execution_truth"]["adverse_fill_bps"], 2.0
         )
+
+    def test_v24_watch_is_causal_deduplicated_and_never_opens_a_trade(self) -> None:
+        markets = daily_series("LONG")
+        day_open = markets["BTCUSDT"][-1].open_time_ms
+        boundary = day_open + 2 * FOUR_HOUR_MS
+        four_hour = {
+            symbol: [
+                Candle(
+                    boundary - FOUR_HOUR_MS,
+                    150.0,
+                    162.0,
+                    149.0,
+                    160.0,
+                    boundary - 1,
+                )
+            ]
+            for symbol in markets
+        }
+        now_ms = boundary + 60_000
+        items, keys = build_v24_watch_items(markets, four_hour, now_ms)
+
+        self.assertEqual(
+            {(item["sleeve"], item["symbol"]) for item in items},
+            {
+                ("CORE", "BTCUSDT"),
+                ("CORE", "ETHUSDT"),
+                ("CORE", "SOLUSDT"),
+                ("CORE", "BNBUSDT"),
+                ("FAST", "SOLUSDT"),
+                ("FAST", "BNBUSDT"),
+            },
+        )
+        self.assertTrue(all(item["status"] == "WATCH_ONLY" for item in items))
+        self.assertTrue(all("plan" not in item for item in items))
+        self.assertEqual(build_v24_watch_items(markets, four_hour, now_ms, keys)[0], [])
+
+        with tempfile.TemporaryDirectory() as directory:
+            config = RuntimeConfig(
+                Path(directory) / "state.json",
+                60,
+                3600,
+                600,
+                40.0,
+                1500,
+                False,
+                True,
+                True,
+            )
+            engine = ForwardEngine(
+                client=FakeClient(markets, four_hour),
+                store=ForwardStore(config.state_path, spec_sha256()),
+                config=config,
+            )
+            first = engine.scan(now_ms)
+            second = engine.scan(now_ms)
+            watch_events = [
+                item
+                for item in first["notifications"]
+                if item.get("reason") == "V24_EARLY_WATCH"
+            ]
+            self.assertEqual(len(watch_events), 1)
+            self.assertEqual(len(first["state"]["watch_v24"]["alerts"]), 1)
+            self.assertEqual(len(second["state"]["watch_v24"]["alerts"]), 1)
+            self.assertFalse(
+                any(
+                    item.get("reason") == "V24_EARLY_WATCH"
+                    for item in second["notifications"]
+                )
+            )
+            self.assertEqual(first["state"]["active_positions"], [])
+            self.assertEqual(first["state"]["shadow_v20"]["active_positions"], [])
+            self.assertEqual(first["state"]["shadow_v22"]["active_positions"], [])
+
+            message = format_v24_watch(watch_events[0])
+            self.assertIn("CHƯA PHẢI LỆNH TRADE", message)
+            self.assertIn("Không có Entry / SL / TP", message)
+            self.assertIn("70.4%", message)
+            self.assertLess(len(message), 4096)
+
+    def test_v24_only_runs_in_fresh_non_midnight_four_hour_window(self) -> None:
+        day_open = 1_800_000_000_000 // DAY_MS * DAY_MS
+        self.assertIsNone(v24_due_boundary(day_open + 60_000))
+        boundary = day_open + 2 * FOUR_HOUR_MS
+        self.assertEqual(v24_due_boundary(boundary + 60_000), boundary)
+        self.assertIsNone(v24_due_boundary(boundary + 11 * 60_000))
 
     def test_readiness_playbook_and_alert_are_watch_only(self) -> None:
         markets = daily_series("LONG")

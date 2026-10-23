@@ -63,6 +63,16 @@ class ForwardStore:
                 "execution_samples": [],
                 "last_quote_error": None,
             },
+            "watch_v24": {
+                "strategy_id": "CORE4_V24_EARLY_EXECUTION_WATCH",
+                "created_utc": now_iso(),
+                "alerts": [],
+                "seen_keys": [],
+                "last_evaluated_boundary_ms": None,
+                "last_evaluated_utc": None,
+                "last_status": "WAITING_4H_CLOSE",
+                "last_error": None,
+            },
             "v21_telemetry": {
                 "gate_id": "CORE4_V21_PRODUCTION_READINESS",
                 "started_utc": now_iso(),

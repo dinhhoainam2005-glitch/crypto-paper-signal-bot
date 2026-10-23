@@ -20,6 +20,7 @@ from .state import ForwardStore, now_iso
 
 
 DAY_MS = 86_400_000
+FOUR_HOUR_MS = 14_400_000
 MINUTE_MS = 60_000
 COST_RATE = 0.0020
 ENTRY_CHANNEL = 55
@@ -51,6 +52,8 @@ V20_MIN_BREADTH = 2
 V20_SMA_SLOPE_DAYS = 20
 V20_MAX_INITIAL_GROSS = MAX_INITIAL_GROSS
 V22_STRATEGY_ID = "CORE4_V22_EXECUTION_TRUTH_SHADOW"
+V24_STRATEGY_ID = "CORE4_V24_EARLY_EXECUTION_WATCH"
+V24_ALERT_WINDOW_SECONDS = 600
 
 
 def utc_iso(milliseconds: int) -> str:
@@ -330,6 +333,125 @@ def v20_regime_context(
         "btc_sma200_slope20": slope,
         "reason": "PASS" if allowed else "TREND_OR_BREADTH_BLOCKED",
     }
+
+
+def v24_due_boundary(now_ms: int) -> int | None:
+    boundary = now_ms // FOUR_HOUR_MS * FOUR_HOUR_MS
+    if boundary % DAY_MS == 0:
+        return None
+    if now_ms - boundary > V24_ALERT_WINDOW_SECONDS * 1000:
+        return None
+    return boundary
+
+
+def build_v24_watch_items(
+    daily_by_symbol: dict[str, list[Candle]],
+    four_hour_by_symbol: dict[str, list[Candle]],
+    now_ms: int,
+    seen_keys: set[str] | None = None,
+) -> tuple[list[dict[str, Any]], set[str]]:
+    """Build causal 4h watch alerts for the frozen V20 daily decision."""
+    seen = seen_keys or set()
+    latest: dict[str, Candle] = {}
+    for symbol in daily_by_symbol:
+        completed = [
+            candle
+            for candle in four_hour_by_symbol.get(symbol, [])
+            if candle.close_time_ms <= now_ms
+        ]
+        if not completed:
+            return [], set()
+        latest[symbol] = completed[-1]
+    close_times = {candle.close_time_ms for candle in latest.values()}
+    if len(close_times) != 1:
+        return [], set()
+    signal_close_ms = next(iter(close_times)) + 1
+    if now_ms - signal_close_ms > V24_ALERT_WINDOW_SECONDS * 1000:
+        return [], set()
+    signal_day_ms = latest["BTCUSDT"].open_time_ms // DAY_MS * DAY_MS
+    daily_confirmation_ms = signal_day_ms + DAY_MS
+    if signal_close_ms >= daily_confirmation_ms:
+        return [], set()
+
+    completed_daily = {
+        symbol: completed_and_current(candles, now_ms)[0]
+        for symbol, candles in daily_by_symbol.items()
+    }
+    btc_daily = completed_daily.get("BTCUSDT", [])
+    if len(btc_daily) < SMA_DAYS:
+        return [], set()
+    btc_sma200 = sum(candle.close for candle in btc_daily[-SMA_DAYS:]) / SMA_DAYS
+    btc_h4_close = latest["BTCUSDT"].close
+
+    raw: dict[str, list[dict[str, Any]]] = {"CORE": [], "FAST": []}
+    for sleeve, channel in (("CORE", ENTRY_CHANNEL), ("FAST", V17_ENTRY_CHANNEL)):
+        for symbol, daily in completed_daily.items():
+            if len(daily) < channel:
+                continue
+            entry_high = max(candle.high for candle in daily[-channel:])
+            entry_low = min(candle.low for candle in daily[-channel:])
+            close = latest[symbol].close
+            side = None
+            trigger = None
+            if close > entry_high and btc_h4_close > btc_sma200:
+                side, trigger = "LONG", entry_high
+            elif close < entry_low and btc_h4_close < btc_sma200:
+                side, trigger = "SHORT", entry_low
+            if side is None:
+                continue
+            raw[sleeve].append(
+                {
+                    "symbol": symbol,
+                    "side": side,
+                    "sleeve": sleeve,
+                    "timeframe": "4h",
+                    "h4_close": close,
+                    "daily_trigger": trigger,
+                    "signal_close_ms": signal_close_ms,
+                    "signal_close_utc": utc_iso(signal_close_ms),
+                    "daily_confirmation_ms": daily_confirmation_ms,
+                    "daily_confirmation_utc": utc_iso(daily_confirmation_ms),
+                    "lead_hours": (
+                        daily_confirmation_ms - signal_close_ms
+                    ) / 3_600_000.0,
+                    "btc_h4_close": btc_h4_close,
+                    "btc_sma200_prior_day": btc_sma200,
+                }
+            )
+
+    selected = list(raw["CORE"])
+    fast_counts = {
+        side: len(
+            {item["symbol"] for item in raw["FAST"] if item["side"] == side}
+        )
+        for side in ("LONG", "SHORT")
+    }
+    prior_context = v20_regime_context(daily_by_symbol, now_ms)
+    if prior_context.get("allowed"):
+        selected.extend(
+            item
+            for item in raw["FAST"]
+            if item["symbol"] in V20_FAST_SYMBOLS
+            and fast_counts[item["side"]] >= 2
+        )
+
+    output: list[dict[str, Any]] = []
+    new_keys: set[str] = set()
+    for item in selected:
+        key = f"{item['sleeve']}:{item['symbol']}:{signal_day_ms}"
+        if key in seen:
+            continue
+        item.update(
+            watch_key=key,
+            status="WATCH_ONLY",
+            paper_only=True,
+            v24_configuration="ROUTED_C1",
+            historical_precision=0.704,
+            historical_coverage=0.846,
+        )
+        output.append(item)
+        new_keys.add(key)
+    return output, new_keys
 
 
 def _as_v20_candidate(
@@ -814,6 +936,31 @@ def ensure_v22_state(state: dict[str, Any]) -> dict[str, Any]:
     return shadow
 
 
+def ensure_v24_state(state: dict[str, Any]) -> dict[str, Any]:
+    watch = state.setdefault(
+        "watch_v24",
+        {
+            "strategy_id": V24_STRATEGY_ID,
+            "created_utc": now_iso(),
+            "alerts": [],
+            "seen_keys": [],
+            "last_evaluated_boundary_ms": None,
+            "last_evaluated_utc": None,
+            "last_status": "WAITING_4H_CLOSE",
+            "last_error": None,
+        },
+    )
+    watch.setdefault("strategy_id", V24_STRATEGY_ID)
+    watch.setdefault("created_utc", now_iso())
+    watch.setdefault("alerts", [])
+    watch.setdefault("seen_keys", [])
+    watch.setdefault("last_evaluated_boundary_ms", None)
+    watch.setdefault("last_evaluated_utc", None)
+    watch.setdefault("last_status", "WAITING_4H_CLOSE")
+    watch.setdefault("last_error", None)
+    return watch
+
+
 def build_v22_execution_signal(
     source: dict[str, Any],
     quote: dict[str, Any],
@@ -922,6 +1069,12 @@ class ForwardEngine:
         if loader is None:
             raise RuntimeError("book ticker is unavailable on the market client")
         return loader(symbol)
+
+    def _four_hour_candles(self, symbol: str) -> tuple[list[Candle], str]:
+        loader = getattr(self.client, "four_hour_candles_with_source", None)
+        if loader is None:
+            raise RuntimeError("four-hour Futures candles are unavailable")
+        return loader(symbol, 3)
 
     def _replay_position(
         self,
@@ -1633,6 +1786,60 @@ class ForwardEngine:
             v22["events"] = v22.get("events", [])[-2000:]
             v22["execution_samples"] = v22.get("execution_samples", [])[-2000:]
 
+            v24 = ensure_v24_state(state)
+            v24_boundary = v24_due_boundary(now_ms)
+            if (
+                v24_boundary is not None
+                and v24.get("last_evaluated_boundary_ms") != v24_boundary
+            ):
+                try:
+                    four_hour_by_symbol: dict[str, list[Candle]] = {}
+                    four_hour_sources: dict[str, str] = {}
+                    for symbol in self.symbols:
+                        candles, source = self._four_hour_candles(symbol)
+                        four_hour_by_symbol[symbol] = candles
+                        four_hour_sources[symbol] = source
+                    if any(
+                        source != SOURCE_USDM_FUTURES
+                        for source in four_hour_sources.values()
+                    ):
+                        raise RuntimeError("untrusted four-hour data source")
+                    items, new_keys = build_v24_watch_items(
+                        daily_by_symbol,
+                        four_hour_by_symbol,
+                        now_ms,
+                        set(v24.get("seen_keys", [])),
+                    )
+                    v24["last_evaluated_boundary_ms"] = v24_boundary
+                    v24["last_evaluated_utc"] = utc_iso(now_ms)
+                    v24["last_status"] = (
+                        "ALERT" if items else "NO_EARLY_CROSS"
+                    )
+                    v24["last_error"] = None
+                    if items:
+                        event = {
+                            "event_id": f"CORE4V24:WATCH:{v24_boundary}",
+                            "reason": "V24_EARLY_WATCH",
+                            "strategy_id": V24_STRATEGY_ID,
+                            "status": "WATCH_ONLY",
+                            "signal_close_utc": items[0]["signal_close_utc"],
+                            "daily_confirmation_utc": items[0][
+                                "daily_confirmation_utc"
+                            ],
+                            "lead_hours": items[0]["lead_hours"],
+                            "items": items,
+                            "paper_only": True,
+                        }
+                        v24.setdefault("alerts", []).append(event)
+                        v24["seen_keys"] = sorted(
+                            set(v24.get("seen_keys", [])) | new_keys
+                        )[-2000:]
+                        notifications.append(event)
+                except Exception as exc:
+                    v24["last_status"] = "DATA_ERROR"
+                    v24["last_error"] = f"{type(exc).__name__}: {exc}"
+            v24["alerts"] = v24.get("alerts", [])[-500:]
+
             unrealized = sum(
                 _direction(position)
                 * position["remaining_quantity"]
@@ -1678,6 +1885,9 @@ class ForwardEngine:
                 "v22_execution_equity": v22["equity"],
                 "v22_execution_samples": len(v22.get("execution_samples", [])),
                 "v22_errors": v22_errors,
+                "v24_watch_alerts": len(v24.get("alerts", [])),
+                "v24_watch_status": v24.get("last_status"),
+                "v24_watch_error": v24.get("last_error"),
                 "errors": errors,
                 "source_mismatches": source_mismatches,
                 "require_futures_for_signals": self.config.require_futures_for_signals,

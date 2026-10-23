@@ -127,6 +127,16 @@ class BinanceClient:
         )
         return parse_candles(payload), source
 
+    def four_hour_candles_with_source(
+        self, symbol: str, limit: int = 3
+    ) -> tuple[list[Candle], str]:
+        payload, source = self._request_with_source(
+            "/fapi/v1/klines",
+            {"symbol": symbol, "interval": "4h", "limit": limit},
+            spot_fallback_path=None,
+        )
+        return parse_candles(payload), source
+
     def minute_candles(
         self, symbol: str, start_ms: int, end_ms: int, max_minutes: int
     ) -> list[Candle]:

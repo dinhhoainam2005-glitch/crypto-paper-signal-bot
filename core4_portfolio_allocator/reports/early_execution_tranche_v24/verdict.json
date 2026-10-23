@@ -1,0 +1,329 @@
+{
+  "experiment": "CORE4_V24_EARLY_EXECUTION_TRANCHE",
+  "period": "2021-01-01/2026-09-30",
+  "selected_spec": "EARLY_50%",
+  "selected_from_eligible_set": false,
+  "baseline_metrics": {
+    "DEVELOPMENT_2021_2023": {
+      "days": 1095,
+      "total_return": 0.14057107270334734,
+      "cagr": 0.04486020554896131,
+      "sharpe": 1.2988957410965063,
+      "max_drawdown": -0.027360035607976174,
+      "trades": 120,
+      "win_rate": 0.6166666666666667,
+      "profit_factor": 2.1376128232265117,
+      "mean_r": 0.4331882329253255,
+      "median_holding_days": 8.125,
+      "trades_per_week": 0.767123287671233
+    },
+    "VALIDATION_2024": {
+      "days": 366,
+      "total_return": 0.015942691654058594,
+      "cagr": 0.015942691654058594,
+      "sharpe": 0.5300639705736582,
+      "max_drawdown": -0.03584207149664087,
+      "trades": 43,
+      "win_rate": 0.5813953488372093,
+      "profit_factor": 1.3006759986957597,
+      "mean_r": 0.1496100705459895,
+      "median_holding_days": 7.541666666666667,
+      "trades_per_week": 0.8224043715846995
+    },
+    "FROZEN_2025_PLUS": {
+      "days": 638,
+      "total_return": 0.058959164727747204,
+      "cagr": 0.033369764128187374,
+      "sharpe": 1.1729455892919214,
+      "max_drawdown": -0.01806580640702371,
+      "trades": 58,
+      "win_rate": 0.6206896551724138,
+      "profit_factor": 2.222512755554554,
+      "mean_r": 0.3726806971285051,
+      "median_holding_days": 8.958333333333334,
+      "trades_per_week": 0.6363636363636364
+    },
+    "FULL": {
+      "days": 2099,
+      "total_return": 0.22707406344727632,
+      "cagr": 0.03624229034516313,
+      "sharpe": 1.1314927901942398,
+      "max_drawdown": -0.03584207149664087,
+      "trades": 221,
+      "win_rate": 0.6108597285067874,
+      "profit_factor": 1.9556930902031224,
+      "mean_r": 0.3621325856016738,
+      "median_holding_days": 8.041666666666666,
+      "trades_per_week": 0.7370176274416389
+    }
+  },
+  "selected": {
+    "spec": {
+      "name": "EARLY_50%",
+      "early_fraction": 0.5
+    },
+    "metrics": {
+      "DEVELOPMENT_2021_2023": {
+        "days": 1095,
+        "total_return": 0.1144995792291501,
+        "cagr": 0.03683022226229227,
+        "sharpe": 1.1611633575581608,
+        "max_drawdown": -0.034076219147049724,
+        "trades": 153,
+        "win_rate": 0.5098039215686274,
+        "profit_factor": 1.9002677843730895,
+        "mean_r": 0.2920620853801815,
+        "median_holding_days": 6.458333333333333,
+        "trades_per_week": 0.978082191780822
+      },
+      "VALIDATION_2024": {
+        "days": 366,
+        "total_return": 0.017740540406027794,
+        "cagr": 0.017740540406027794,
+        "sharpe": 0.7005911783111344,
+        "max_drawdown": -0.024070076695874687,
+        "trades": 56,
+        "win_rate": 0.4642857142857143,
+        "profit_factor": 1.37964019745606,
+        "mean_r": 0.13872106151345714,
+        "median_holding_days": 5.916666666666667,
+        "trades_per_week": 1.0710382513661203
+      },
+      "FROZEN_2025_PLUS": {
+        "days": 638,
+        "total_return": 0.05666578690379165,
+        "cagr": 0.03208682353730108,
+        "sharpe": 1.1270414846394716,
+        "max_drawdown": -0.019181815569990768,
+        "trades": 81,
+        "win_rate": 0.4567901234567901,
+        "profit_factor": 2.155700683735948,
+        "mean_r": 0.220716213656029,
+        "median_holding_days": 5.458333333333333,
+        "trades_per_week": 0.8887147335423198
+      },
+      "FULL": {
+        "days": 2099,
+        "total_return": 0.19854578571975345,
+        "cagr": 0.03201011984675706,
+        "sharpe": 1.0784237164070858,
+        "max_drawdown": -0.034076219147049724,
+        "trades": 290,
+        "win_rate": 0.4862068965517241,
+        "profit_factor": 1.8582780579603975,
+        "mean_r": 0.24252376487606803,
+        "median_holding_days": 6.020833333333334,
+        "trades_per_week": 0.967127203430205
+      }
+    },
+    "diagnostics": {
+      "maximum_initial_gross": 0.29298830975799517,
+      "final_equity": 1.1985457857197517,
+      "reconciled_equity": 1.1985457857197503,
+      "reconciliation_error": 1.3322676295501878e-15
+    },
+    "selection_checks": {
+      "development_pf_floor": false,
+      "development_sharpe_floor": false,
+      "development_return_positive": true,
+      "validation_pf_floor": true,
+      "validation_sharpe_floor": true,
+      "validation_return_not_worse": true,
+      "validation_dd_not_25pct_worse": true
+    },
+    "selection_pass": false
+  },
+  "stress": {
+    "metrics": {
+      "days": 2099,
+      "total_return": 0.177948315071216,
+      "cagr": 0.028902451623756376,
+      "sharpe": 0.9708031062447163,
+      "max_drawdown": -0.03136313058775386,
+      "trades": 287,
+      "win_rate": 0.49477351916376305,
+      "profit_factor": 1.753208338444342,
+      "mean_r": 0.22705865903743228,
+      "median_holding_days": 5.875,
+      "trades_per_week": 0.957122439256789
+    },
+    "diagnostics": {
+      "maximum_initial_gross": 0.29298830975799517,
+      "final_equity": 1.1779483150712184,
+      "reconciled_equity": 1.1779483150712178,
+      "reconciliation_error": 6.661338147750939e-16
+    }
+  },
+  "replacement_checks": {
+    "frequency_improves_10pct": true,
+    "win_within_2pct": false,
+    "pf_not_worse": false,
+    "mean_r_not_worse": false,
+    "return_not_worse": false,
+    "sharpe_not_worse": false,
+    "drawdown_not_worse": true,
+    "frozen_pf_ge_1p20": true,
+    "frozen_return_positive": true,
+    "stress_pf_ge_1p30": true,
+    "stress_return_positive": true,
+    "stress_dd_le_7pct": true
+  },
+  "historical_gate_pass": false,
+  "decision": "REJECT_V24_KEEP_V20",
+  "runtime_changed": false,
+  "real_money_authorized": false,
+  "candidates": [
+    {
+      "spec": {
+        "name": "EARLY_25%",
+        "early_fraction": 0.25
+      },
+      "metrics": {
+        "DEVELOPMENT_2021_2023": {
+          "days": 1095,
+          "total_return": 0.11593395235721071,
+          "cagr": 0.03727524201314525,
+          "sharpe": 1.1977920267830509,
+          "max_drawdown": -0.029748903724766018,
+          "trades": 153,
+          "win_rate": 0.5032679738562091,
+          "profit_factor": 1.968824361929024,
+          "mean_r": 0.26469974489290354,
+          "median_holding_days": 6.458333333333333,
+          "trades_per_week": 0.978082191780822
+        },
+        "VALIDATION_2024": {
+          "days": 366,
+          "total_return": 0.012190356425564763,
+          "cagr": 0.012190356425564763,
+          "sharpe": 0.4682548611622176,
+          "max_drawdown": -0.028528620791344883,
+          "trades": 56,
+          "win_rate": 0.44642857142857145,
+          "profit_factor": 1.2386640731615943,
+          "mean_r": 0.09899186694405018,
+          "median_holding_days": 5.916666666666667,
+          "trades_per_week": 1.0710382513661203
+        },
+        "FROZEN_2025_PLUS": {
+          "days": 638,
+          "total_return": 0.057364347306356755,
+          "cagr": 0.03247773166512857,
+          "sharpe": 1.1696048227672555,
+          "max_drawdown": -0.017536973868093608,
+          "trades": 81,
+          "win_rate": 0.4444444444444444,
+          "profit_factor": 2.2570306051591853,
+          "mean_r": 0.18329805882263017,
+          "median_holding_days": 5.458333333333333,
+          "trades_per_week": 0.8887147335423198
+        },
+        "FULL": {
+          "days": 2099,
+          "total_return": 0.19433277130442783,
+          "cagr": 0.03137808496634342,
+          "sharpe": 1.071439611602663,
+          "max_drawdown": -0.029748903724766018,
+          "trades": 290,
+          "win_rate": 0.47586206896551725,
+          "profit_factor": 1.8750326823650105,
+          "mean_r": 0.20996464924866928,
+          "median_holding_days": 6.020833333333334,
+          "trades_per_week": 0.967127203430205
+        }
+      },
+      "diagnostics": {
+        "maximum_initial_gross": 0.29298830975799517,
+        "final_equity": 1.1943327713044338,
+        "reconciled_equity": 1.194332771304427,
+        "reconciliation_error": 6.8833827526759706e-15
+      },
+      "selection_checks": {
+        "development_pf_floor": true,
+        "development_sharpe_floor": true,
+        "development_return_positive": true,
+        "validation_pf_floor": true,
+        "validation_sharpe_floor": false,
+        "validation_return_not_worse": false,
+        "validation_dd_not_25pct_worse": true
+      },
+      "selection_pass": false
+    },
+    {
+      "spec": {
+        "name": "EARLY_50%",
+        "early_fraction": 0.5
+      },
+      "metrics": {
+        "DEVELOPMENT_2021_2023": {
+          "days": 1095,
+          "total_return": 0.1144995792291501,
+          "cagr": 0.03683022226229227,
+          "sharpe": 1.1611633575581608,
+          "max_drawdown": -0.034076219147049724,
+          "trades": 153,
+          "win_rate": 0.5098039215686274,
+          "profit_factor": 1.9002677843730895,
+          "mean_r": 0.2920620853801815,
+          "median_holding_days": 6.458333333333333,
+          "trades_per_week": 0.978082191780822
+        },
+        "VALIDATION_2024": {
+          "days": 366,
+          "total_return": 0.017740540406027794,
+          "cagr": 0.017740540406027794,
+          "sharpe": 0.7005911783111344,
+          "max_drawdown": -0.024070076695874687,
+          "trades": 56,
+          "win_rate": 0.4642857142857143,
+          "profit_factor": 1.37964019745606,
+          "mean_r": 0.13872106151345714,
+          "median_holding_days": 5.916666666666667,
+          "trades_per_week": 1.0710382513661203
+        },
+        "FROZEN_2025_PLUS": {
+          "days": 638,
+          "total_return": 0.05666578690379165,
+          "cagr": 0.03208682353730108,
+          "sharpe": 1.1270414846394716,
+          "max_drawdown": -0.019181815569990768,
+          "trades": 81,
+          "win_rate": 0.4567901234567901,
+          "profit_factor": 2.155700683735948,
+          "mean_r": 0.220716213656029,
+          "median_holding_days": 5.458333333333333,
+          "trades_per_week": 0.8887147335423198
+        },
+        "FULL": {
+          "days": 2099,
+          "total_return": 0.19854578571975345,
+          "cagr": 0.03201011984675706,
+          "sharpe": 1.0784237164070858,
+          "max_drawdown": -0.034076219147049724,
+          "trades": 290,
+          "win_rate": 0.4862068965517241,
+          "profit_factor": 1.8582780579603975,
+          "mean_r": 0.24252376487606803,
+          "median_holding_days": 6.020833333333334,
+          "trades_per_week": 0.967127203430205
+        }
+      },
+      "diagnostics": {
+        "maximum_initial_gross": 0.29298830975799517,
+        "final_equity": 1.1985457857197517,
+        "reconciled_equity": 1.1985457857197503,
+        "reconciliation_error": 1.3322676295501878e-15
+      },
+      "selection_checks": {
+        "development_pf_floor": false,
+        "development_sharpe_floor": false,
+        "development_return_positive": true,
+        "validation_pf_floor": true,
+        "validation_sharpe_floor": true,
+        "validation_return_not_worse": true,
+        "validation_dd_not_25pct_worse": true
+      },
+      "selection_pass": false
+    }
+  ]
+}

@@ -109,6 +109,7 @@ def format_startup(scan: dict[str, Any]) -> str:
             "🧪 V17 shadow: <b>BNB/SOL 1D nhanh + xác nhận ≥2/4</b> | rủi ro <b>0,105%/lệnh</b>",
             "🧭 V20 shadow: <b>CORE + FAST theo TREND_BREADTH2</b> | ledger riêng / watch only",
             "🔬 V22 execution: <b>bid/ask Futures thật + ledger khớp lệnh riêng</b> | watch only",
+            "⚡ V24 cảnh báo sớm: <b>4h chạm ngưỡng V20</b> | chỉ theo dõi, chờ D1 xác nhận",
             "🛡️ V21 go-live: <b>KHÓA</b> | đạt <b>{passed}/{total}</b> cổng | Forward <code>{days:.1f}/90 ngày</code> | Cụm <code>{clusters}/20</code>".format(
                 passed=int(v21.get("passed_checks", 0)),
                 total=int(v21.get("total_checks", 11)),
@@ -222,6 +223,49 @@ def format_signal(signal: dict[str, Any]) -> str:
     )
 
 
+def format_v24_watch(event: dict[str, Any]) -> str:
+    items = event.get("items", [])
+    directions = {str(item.get("side")) for item in items}
+    direction = next(iter(directions)) if len(directions) == 1 else "MIXED"
+    direction_label = {
+        "LONG": "NGHIÊNG LONG (MUA)",
+        "SHORT": "NGHIÊNG SHORT (BÁN)",
+    }.get(direction, "NHIỀU HƯỚNG")
+    lines = [
+        f"⚡👀 <b>CORE4 V24 CẢNH BÁO SỚM — {direction_label}</b>",
+        "━━━━━━━━━━━━━━━━━━━━━━━━",
+        "⏱️ Nến <b>4h</b> vừa chạm điều kiện sớm của V20.",
+        "🟠 <b>CHỈ THEO DÕI / CHƯA PHẢI LỆNH TRADE</b>",
+        "",
+        "📊 <b>TÍN HIỆU ĐANG CHỜ D1 XÁC NHẬN</b>",
+    ]
+    for item in items:
+        side = "LONG" if item.get("side") == "LONG" else "SHORT"
+        lines.append(
+            "• {symbol} <b>{side}</b> | {sleeve} | đóng 4h <code>{close}</code> | ngưỡng <code>{trigger}</code>".format(
+                symbol=esc(str(item.get("symbol", "")).replace("USDT", "")),
+                side=side,
+                sleeve=esc(str(item.get("sleeve", ""))),
+                close=price(float(item.get("h4_close", 0.0))),
+                trigger=price(float(item.get("daily_trigger", 0.0))),
+            )
+        )
+    precision = float(items[0].get("historical_precision", 0.0)) if items else 0.0
+    coverage = float(items[0].get("historical_coverage", 0.0)) if items else 0.0
+    lines.extend(
+        [
+            "",
+            f"⏳ Sớm hơn D1 khoảng <b>{float(event.get('lead_hours', 0.0)):.0f} giờ</b> | D1 xác nhận: {esc(display_time(event.get('daily_confirmation_utc')))}",
+            f"📚 Hậu nghiệm V24: xác nhận D1 <code>{precision:.1%}</code> | bắt sớm <code>{coverage:.1%}</code> tín hiệu V20",
+            "⚠️ Đây không phải Win rate; phá vỡ 4h vẫn có thể thất bại trước khi D1 đóng.",
+            "🚫 Không có Entry / SL / TP ở bước này; không vào lệnh theo cảnh báo.",
+            f"🕒 Nến 4h đóng: {esc(display_time(event.get('signal_close_utc')))}",
+            "🔒 <b>WATCH ONLY / KHÔNG TỰ ĐẶT LỆNH</b>",
+        ]
+    )
+    return "\n".join(lines)
+
+
 def format_position_event(event: dict[str, Any]) -> str:
     labels = {
         "TP1": "ĐẠT TP1",
@@ -318,6 +362,7 @@ def format_heartbeat(scan: dict[str, Any], state: dict[str, Any]) -> str:
     v22_count, v22_win, v22_pf, v22_mean = performance(v22)
     v22_pf_label = f"{v22_pf:.2f}" if math.isfinite(v22_pf) else "∞"
     v22_active = v22.get("active_positions", [])
+    v24 = state.get("watch_v24", {})
     execution_samples = v22.get("execution_samples", [])
     captured_samples = [
         sample for sample in execution_samples if sample.get("status") == "CAPTURED"
@@ -383,6 +428,17 @@ def format_heartbeat(scan: dict[str, Any], state: dict[str, Any]) -> str:
                 rate=capture_rate,
                 spread=average_spread,
                 adverse=average_adverse_fill,
+            ),
+            "⚡ V24 watch: <b>{status}</b> | đã cảnh báo <code>{alerts}</code> nhịp 4h | không tạo lệnh".format(
+                status=esc(
+                    {
+                        "WAITING_4H_CLOSE": "CHỜ NẾN 4H",
+                        "NO_EARLY_CROSS": "CHƯA CHẠM NGƯỠNG",
+                        "ALERT": "ĐÃ CÓ CẢNH BÁO",
+                        "DATA_ERROR": "LỖI DỮ LIỆU",
+                    }.get(v24.get("last_status"), v24.get("last_status", "CHỜ"))
+                ),
+                alerts=len(v24.get("alerts", [])),
             ),
             "🧭 V20 gate: <b>{status}</b> | hướng <b>{side}</b> | breadth <code>{breadth}/4</code> | FAST <b>{fast}</b>".format(
                 status="ĐẠT" if v20_context.get("allowed") else "CHỜ",

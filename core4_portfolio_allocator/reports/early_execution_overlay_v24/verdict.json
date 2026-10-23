@@ -1,0 +1,368 @@
+{
+  "experiment": "CORE4_V24_EARLY_EXECUTION_OVERLAY",
+  "period": "2021-01-01/2026-09-30",
+  "configuration_count": 4,
+  "selected_configuration": "ROUTED_C1",
+  "selected_from_eligible_set": true,
+  "selected": {
+    "configuration": "ROUTED_C1",
+    "parameters": {
+      "include_fast": true,
+      "core_confirmations": 1
+    },
+    "metrics": {
+      "DEVELOPMENT_2021_2023": {
+        "early_events": 358,
+        "daily_signals": 297,
+        "early_events_per_week": 2.288584474885845,
+        "precision": 0.7039106145251397,
+        "coverage": 0.8484848484848485,
+        "median_lead_hours": 12.0,
+        "mean_confirmed_advantage_bps": 310.35364173583355,
+        "mean_false_break_net_bps": -367.91048491836074,
+        "mean_opportunity_benefit_bps": 109.52683328515035,
+        "false_breaks": 106
+      },
+      "VALIDATION_2024": {
+        "early_events": 134,
+        "daily_signals": 115,
+        "early_events_per_week": 2.5628415300546448,
+        "precision": 0.6940298507462687,
+        "coverage": 0.808695652173913,
+        "median_lead_hours": 12.0,
+        "mean_confirmed_advantage_bps": 143.50914642903476,
+        "mean_false_break_net_bps": -311.83377468664855,
+        "mean_opportunity_benefit_bps": 4.18780489363911,
+        "false_breaks": 41
+      },
+      "FROZEN_2025_PLUS": {
+        "early_events": 187,
+        "daily_signals": 153,
+        "early_events_per_week": 2.0517241379310347,
+        "precision": 0.7112299465240641,
+        "coverage": 0.869281045751634,
+        "median_lead_hours": 12.0,
+        "mean_confirmed_advantage_bps": 161.7125513134696,
+        "mean_false_break_net_bps": -335.00460806494897,
+        "mean_opportunity_benefit_bps": 18.27551063734871,
+        "false_breaks": 54
+      },
+      "FULL": {
+        "early_events": 679,
+        "daily_signals": 565,
+        "early_events_per_week": 2.264411624583135,
+        "precision": 0.7039764359351989,
+        "coverage": 0.8460176991150442,
+        "median_lead_hours": 12.0,
+        "mean_confirmed_advantage_bps": 236.53397000004546,
+        "mean_false_break_net_bps": -347.63156715923424,
+        "mean_opportunity_benefit_bps": 63.607205686326466,
+        "false_breaks": 201
+      }
+    },
+    "checks": {
+      "development_events_ge_80": true,
+      "development_precision_ge_70pct": true,
+      "development_coverage_ge_60pct": true,
+      "development_lead_ge_4h": true,
+      "development_confirmed_advantage_positive": true,
+      "development_opportunity_positive": true,
+      "validation_events_ge_25": true,
+      "validation_precision_ge_65pct": true,
+      "validation_coverage_ge_55pct": true,
+      "validation_confirmed_advantage_positive": true,
+      "validation_opportunity_positive": true
+    },
+    "viability_pass": true
+  },
+  "stage_two_authorized": true,
+  "decision": "RUN_V24_TRANCHE_SIMULATION",
+  "runtime_changed": false,
+  "real_money_authorized": false,
+  "configurations": [
+    {
+      "configuration": "CORE_C1",
+      "parameters": {
+        "include_fast": false,
+        "core_confirmations": 1
+      },
+      "metrics": {
+        "DEVELOPMENT_2021_2023": {
+          "early_events": 311,
+          "daily_signals": 225,
+          "early_events_per_week": 1.9881278538812788,
+          "precision": 0.7234726688102894,
+          "coverage": 1.0,
+          "median_lead_hours": 12.0,
+          "mean_confirmed_advantage_bps": 318.48130979216063,
+          "mean_false_break_net_bps": -457.5561886846573,
+          "mean_opportunity_benefit_bps": 103.88573143522706,
+          "false_breaks": 86
+        },
+        "VALIDATION_2024": {
+          "early_events": 116,
+          "daily_signals": 81,
+          "early_events_per_week": 2.218579234972678,
+          "precision": 0.6982758620689655,
+          "coverage": 1.0,
+          "median_lead_hours": 12.0,
+          "mean_confirmed_advantage_bps": 151.36985580682958,
+          "mean_false_break_net_bps": -342.9316608885388,
+          "mean_opportunity_benefit_bps": 2.2271568039167193,
+          "false_breaks": 35
+        },
+        "FROZEN_2025_PLUS": {
+          "early_events": 156,
+          "daily_signals": 114,
+          "early_events_per_week": 1.7115987460815048,
+          "precision": 0.7307692307692307,
+          "coverage": 1.0,
+          "median_lead_hours": 12.0,
+          "mean_confirmed_advantage_bps": 165.73147869420123,
+          "mean_false_break_net_bps": -368.97274194682177,
+          "mean_opportunity_benefit_bps": 21.772650060079663,
+          "false_breaks": 42
+        },
+        "FULL": {
+          "early_events": 583,
+          "daily_signals": 420,
+          "early_events_per_week": 1.9442591710338257,
+          "precision": 0.7204116638078902,
+          "coverage": 1.0,
+          "median_lead_hours": 12.0,
+          "mean_confirmed_advantage_bps": 244.79200379697207,
+          "mean_false_break_net_bps": -410.11837742175396,
+          "mean_opportunity_benefit_bps": 61.68669995708813,
+          "false_breaks": 163
+        }
+      },
+      "checks": {
+        "development_events_ge_80": true,
+        "development_precision_ge_70pct": true,
+        "development_coverage_ge_60pct": true,
+        "development_lead_ge_4h": true,
+        "development_confirmed_advantage_positive": true,
+        "development_opportunity_positive": true,
+        "validation_events_ge_25": true,
+        "validation_precision_ge_65pct": true,
+        "validation_coverage_ge_55pct": true,
+        "validation_confirmed_advantage_positive": true,
+        "validation_opportunity_positive": true
+      },
+      "viability_pass": true
+    },
+    {
+      "configuration": "CORE_C2",
+      "parameters": {
+        "include_fast": false,
+        "core_confirmations": 2
+      },
+      "metrics": {
+        "DEVELOPMENT_2021_2023": {
+          "early_events": 95,
+          "daily_signals": 225,
+          "early_events_per_week": 0.6073059360730594,
+          "precision": 0.8105263157894737,
+          "coverage": 0.3422222222222222,
+          "median_lead_hours": 16.0,
+          "mean_confirmed_advantage_bps": 300.3937180511412,
+          "mean_false_break_net_bps": -370.0030089696495,
+          "mean_opportunity_benefit_bps": 173.37118029983347,
+          "false_breaks": 18
+        },
+        "VALIDATION_2024": {
+          "early_events": 31,
+          "daily_signals": 81,
+          "early_events_per_week": 0.592896174863388,
+          "precision": 0.7741935483870968,
+          "coverage": 0.2962962962962963,
+          "median_lead_hours": 16.0,
+          "mean_confirmed_advantage_bps": 139.3202497565135,
+          "mean_false_break_net_bps": -280.0287855069585,
+          "mean_opportunity_benefit_bps": 44.62853211637467,
+          "false_breaks": 7
+        },
+        "FROZEN_2025_PLUS": {
+          "early_events": 66,
+          "daily_signals": 114,
+          "early_events_per_week": 0.7241379310344828,
+          "precision": 0.7727272727272727,
+          "coverage": 0.4473684210526316,
+          "median_lead_hours": 12.0,
+          "mean_confirmed_advantage_bps": 123.19766028869635,
+          "mean_false_break_net_bps": -451.67478964057904,
+          "mean_opportunity_benefit_bps": -7.455169240684431,
+          "false_breaks": 15
+        },
+        "FULL": {
+          "early_events": 192,
+          "daily_signals": 420,
+          "early_events_per_week": 0.6403049070986184,
+          "precision": 0.7916666666666666,
+          "coverage": 0.3619047619047619,
+          "median_lead_hours": 16.0,
+          "mean_confirmed_advantage_bps": 215.50712472906386,
+          "mean_false_break_net_bps": -384.88443761527714,
+          "mean_opportunity_benefit_bps": 90.4255492406595,
+          "false_breaks": 40
+        }
+      },
+      "checks": {
+        "development_events_ge_80": true,
+        "development_precision_ge_70pct": true,
+        "development_coverage_ge_60pct": false,
+        "development_lead_ge_4h": true,
+        "development_confirmed_advantage_positive": true,
+        "development_opportunity_positive": true,
+        "validation_events_ge_25": true,
+        "validation_precision_ge_65pct": true,
+        "validation_coverage_ge_55pct": false,
+        "validation_confirmed_advantage_positive": true,
+        "validation_opportunity_positive": true
+      },
+      "viability_pass": false
+    },
+    {
+      "configuration": "ROUTED_C1",
+      "parameters": {
+        "include_fast": true,
+        "core_confirmations": 1
+      },
+      "metrics": {
+        "DEVELOPMENT_2021_2023": {
+          "early_events": 358,
+          "daily_signals": 297,
+          "early_events_per_week": 2.288584474885845,
+          "precision": 0.7039106145251397,
+          "coverage": 0.8484848484848485,
+          "median_lead_hours": 12.0,
+          "mean_confirmed_advantage_bps": 310.35364173583355,
+          "mean_false_break_net_bps": -367.91048491836074,
+          "mean_opportunity_benefit_bps": 109.52683328515035,
+          "false_breaks": 106
+        },
+        "VALIDATION_2024": {
+          "early_events": 134,
+          "daily_signals": 115,
+          "early_events_per_week": 2.5628415300546448,
+          "precision": 0.6940298507462687,
+          "coverage": 0.808695652173913,
+          "median_lead_hours": 12.0,
+          "mean_confirmed_advantage_bps": 143.50914642903476,
+          "mean_false_break_net_bps": -311.83377468664855,
+          "mean_opportunity_benefit_bps": 4.18780489363911,
+          "false_breaks": 41
+        },
+        "FROZEN_2025_PLUS": {
+          "early_events": 187,
+          "daily_signals": 153,
+          "early_events_per_week": 2.0517241379310347,
+          "precision": 0.7112299465240641,
+          "coverage": 0.869281045751634,
+          "median_lead_hours": 12.0,
+          "mean_confirmed_advantage_bps": 161.7125513134696,
+          "mean_false_break_net_bps": -335.00460806494897,
+          "mean_opportunity_benefit_bps": 18.27551063734871,
+          "false_breaks": 54
+        },
+        "FULL": {
+          "early_events": 679,
+          "daily_signals": 565,
+          "early_events_per_week": 2.264411624583135,
+          "precision": 0.7039764359351989,
+          "coverage": 0.8460176991150442,
+          "median_lead_hours": 12.0,
+          "mean_confirmed_advantage_bps": 236.53397000004546,
+          "mean_false_break_net_bps": -347.63156715923424,
+          "mean_opportunity_benefit_bps": 63.607205686326466,
+          "false_breaks": 201
+        }
+      },
+      "checks": {
+        "development_events_ge_80": true,
+        "development_precision_ge_70pct": true,
+        "development_coverage_ge_60pct": true,
+        "development_lead_ge_4h": true,
+        "development_confirmed_advantage_positive": true,
+        "development_opportunity_positive": true,
+        "validation_events_ge_25": true,
+        "validation_precision_ge_65pct": true,
+        "validation_coverage_ge_55pct": true,
+        "validation_confirmed_advantage_positive": true,
+        "validation_opportunity_positive": true
+      },
+      "viability_pass": true
+    },
+    {
+      "configuration": "ROUTED_C2",
+      "parameters": {
+        "include_fast": true,
+        "core_confirmations": 2
+      },
+      "metrics": {
+        "DEVELOPMENT_2021_2023": {
+          "early_events": 142,
+          "daily_signals": 297,
+          "early_events_per_week": 0.9077625570776257,
+          "precision": 0.7323943661971831,
+          "coverage": 0.3501683501683502,
+          "median_lead_hours": 16.0,
+          "mean_confirmed_advantage_bps": 285.3955702320365,
+          "mean_false_break_net_bps": -166.01929831366851,
+          "mean_opportunity_benefit_bps": 164.59440822684783,
+          "false_breaks": 38
+        },
+        "VALIDATION_2024": {
+          "early_events": 49,
+          "daily_signals": 115,
+          "early_events_per_week": 0.9371584699453552,
+          "precision": 0.7346938775510204,
+          "coverage": 0.3130434782608696,
+          "median_lead_hours": 12.0,
+          "mean_confirmed_advantage_bps": 123.02995254731556,
+          "mean_false_break_net_bps": -210.98293304634177,
+          "mean_opportunity_benefit_bps": 34.4142890224677,
+          "false_breaks": 13
+        },
+        "FROZEN_2025_PLUS": {
+          "early_events": 97,
+          "daily_signals": 153,
+          "early_events_per_week": 1.0642633228840126,
+          "precision": 0.7216494845360825,
+          "coverage": 0.45751633986928103,
+          "median_lead_hours": 12.0,
+          "mean_confirmed_advantage_bps": 127.10659183251464,
+          "mean_false_break_net_bps": -346.98205623516367,
+          "mean_opportunity_benefit_bps": -4.856227732715386,
+          "false_breaks": 27
+        },
+        "FULL": {
+          "early_events": 288,
+          "daily_signals": 565,
+          "early_events_per_week": 0.9604573606479276,
+          "precision": 0.7291666666666666,
+          "coverage": 0.37168141592920356,
+          "median_lead_hours": 16.0,
+          "mean_confirmed_advantage_bps": 204.79847154338657,
+          "mean_false_break_net_bps": -236.15419210091363,
+          "mean_opportunity_benefit_bps": 85.3737918063886,
+          "false_breaks": 78
+        }
+      },
+      "checks": {
+        "development_events_ge_80": true,
+        "development_precision_ge_70pct": true,
+        "development_coverage_ge_60pct": false,
+        "development_lead_ge_4h": true,
+        "development_confirmed_advantage_positive": true,
+        "development_opportunity_positive": true,
+        "validation_events_ge_25": true,
+        "validation_precision_ge_65pct": true,
+        "validation_coverage_ge_55pct": false,
+        "validation_confirmed_advantage_positive": true,
+        "validation_opportunity_positive": true
+      },
+      "viability_pass": false
+    }
+  ]
+}
