@@ -13,6 +13,7 @@ from urllib.parse import parse_qs, urlparse
 from .config import RuntimeConfig, spec_sha256
 from .decision_support import decision_support_payload, forward_assessment
 from .engine import ForwardEngine
+from .research_cloud import ResearchCloudSupervisor
 from .telegram import (
     TelegramSender,
     bot_display,
@@ -29,6 +30,7 @@ from .telegram import (
 CONFIG = RuntimeConfig.from_env()
 ENGINE = ForwardEngine(config=CONFIG)
 TELEGRAM = TelegramSender(CONFIG.telegram_enabled)
+RESEARCH = ResearchCloudSupervisor(TELEGRAM)
 NOTIFY_LOCK = threading.RLock()
 LAST_HEARTBEAT_MONOTONIC = 0.0
 PROCESS_START_ID = int(time.time() * 1000)
@@ -170,6 +172,8 @@ def health_payload(state: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         "decision_support_endpoint": "/analysis",
         "performance_endpoint": "/performance",
         "readiness_endpoint": "/readiness",
+        "research_endpoint": "/research",
+        "r64_cloud_research": RESEARCH.snapshot(),
     }
     return payload, healthy
 
@@ -261,6 +265,9 @@ class Handler(BaseHTTPRequestHandler):
                 )
             )
             return
+        if parsed.path == "/research":
+            self.send_json(RESEARCH.snapshot())
+            return
         if parsed.path == "/analysis":
             self.send_json(
                 decision_support_payload(state.get("last_scan", {}), state)
@@ -320,6 +327,7 @@ def main() -> None:
             target=background_loop, name="core4-background-scan", daemon=True
         )
         BACKGROUND_THREAD.start()
+    RESEARCH.start()
     ThreadingHTTPServer(("0.0.0.0", port), Handler).serve_forever()
 
 

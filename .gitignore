@@ -3,6 +3,7 @@ __pycache__/
 *.log
 .env
 .venv/
+.venv-r63a/
 venv/
 .codex_deps/
 data/
