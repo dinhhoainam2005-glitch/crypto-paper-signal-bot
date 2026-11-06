@@ -1,0 +1,225 @@
+{
+  "all_passed": true,
+  "created_at_utc": "2026-11-05T23:04:08.663558+00:00",
+  "endpoint_contracts": [
+    {
+      "base_url": "https://fapi.binance.com",
+      "name": "server_time",
+      "params": {},
+      "path": "/fapi/v1/time",
+      "venue": "binance"
+    },
+    {
+      "base_url": "https://fapi.binance.com",
+      "name": "book",
+      "params": {
+        "limit": 20,
+        "symbol": "BTCUSDT"
+      },
+      "path": "/fapi/v1/depth",
+      "venue": "binance"
+    },
+    {
+      "base_url": "https://fapi.binance.com",
+      "name": "mark_oi_funding",
+      "params": {
+        "symbol": "BTCUSDT"
+      },
+      "path": "/fapi/v1/premiumIndex",
+      "venue": "binance"
+    },
+    {
+      "base_url": "https://fapi.binance.com",
+      "name": "open_interest",
+      "params": {
+        "symbol": "BTCUSDT"
+      },
+      "path": "/fapi/v1/openInterest",
+      "venue": "binance"
+    },
+    {
+      "base_url": "https://api.bybit.com",
+      "name": "server_time",
+      "params": {},
+      "path": "/v5/market/time",
+      "venue": "bybit"
+    },
+    {
+      "base_url": "https://api.bybit.com",
+      "name": "instrument",
+      "params": {
+        "category": "linear",
+        "symbol": "BTCUSDT"
+      },
+      "path": "/v5/market/instruments-info",
+      "venue": "bybit"
+    },
+    {
+      "base_url": "https://api.bybit.com",
+      "name": "book",
+      "params": {
+        "category": "linear",
+        "limit": 50,
+        "symbol": "BTCUSDT"
+      },
+      "path": "/v5/market/orderbook",
+      "venue": "bybit"
+    },
+    {
+      "base_url": "https://api.bybit.com",
+      "name": "ticker",
+      "params": {
+        "category": "linear",
+        "symbol": "BTCUSDT"
+      },
+      "path": "/v5/market/tickers",
+      "venue": "bybit"
+    }
+  ],
+  "endpoints": [
+    {
+      "checks": {
+        "exchange_time_ms": 1793919846723
+      },
+      "endpoint": "server_time",
+      "exchange_clock_offset_ms": 1188,
+      "http_status": 200,
+      "latency_ms": 176,
+      "ok": true,
+      "raw_file": "binance__server_time.json",
+      "received_ms": 1793919847911,
+      "sha256": "4c9786dd47f6f998f95976b32a7f5adae7e441be3d83c2715eca55b3bed9b12f",
+      "started_ms": 1793919847735,
+      "url": "https://fapi.binance.com/fapi/v1/time",
+      "venue": "binance"
+    },
+    {
+      "checks": {
+        "best_ask": 75642.0,
+        "best_bid": 75641.9,
+        "spread_bps": 0.013220177428770779,
+        "update_id": 12028018481929
+      },
+      "endpoint": "book",
+      "exchange_clock_offset_ms": null,
+      "http_status": 200,
+      "latency_ms": 119,
+      "ok": true,
+      "raw_file": "binance__book.json",
+      "received_ms": 1793919848031,
+      "sha256": "68569d9a88d2e7f9f3dd78927d6455086586af3a5c5ca907cde852a85bbe0f7f",
+      "started_ms": 1793919847912,
+      "url": "https://fapi.binance.com/fapi/v1/depth?symbol=BTCUSDT&limit=20",
+      "venue": "binance"
+    },
+    {
+      "checks": {
+        "markPrice": 75644.2
+      },
+      "endpoint": "mark_oi_funding",
+      "exchange_clock_offset_ms": null,
+      "http_status": 200,
+      "latency_ms": 146,
+      "ok": true,
+      "raw_file": "binance__mark_oi_funding.json",
+      "received_ms": 1793919848181,
+      "sha256": "5a8cc8b67575be79915ef6cf4f3efb2983a127ef232c6e7c0a9fdf2dee3404a4",
+      "started_ms": 1793919848035,
+      "url": "https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT",
+      "venue": "binance"
+    },
+    {
+      "checks": {
+        "openInterest": 94662.637
+      },
+      "endpoint": "open_interest",
+      "exchange_clock_offset_ms": null,
+      "http_status": 200,
+      "latency_ms": 141,
+      "ok": true,
+      "raw_file": "binance__open_interest.json",
+      "received_ms": 1793919848322,
+      "sha256": "4caf896845b5db75b02161e509a32fed876a41090d216fcdd8a060dcbf391a34",
+      "started_ms": 1793919848181,
+      "url": "https://fapi.binance.com/fapi/v1/openInterest?symbol=BTCUSDT",
+      "venue": "binance"
+    },
+    {
+      "checks": {
+        "exchange_time_ms": 1793919847234
+      },
+      "endpoint": "server_time",
+      "exchange_clock_offset_ms": 1159,
+      "http_status": 200,
+      "latency_ms": 70,
+      "ok": true,
+      "raw_file": "bybit__server_time.json",
+      "received_ms": 1793919848393,
+      "sha256": "557b16b7f44cd63325ff04ecde8ebebcb3d92396e9f3f7d90d06356ba195f671",
+      "started_ms": 1793919848323,
+      "url": "https://api.bybit.com/v5/market/time",
+      "venue": "bybit"
+    },
+    {
+      "checks": {
+        "contractType": "LinearPerpetual",
+        "status": "Trading"
+      },
+      "endpoint": "instrument",
+      "exchange_clock_offset_ms": null,
+      "http_status": 200,
+      "latency_ms": 96,
+      "ok": true,
+      "raw_file": "bybit__instrument.json",
+      "received_ms": 1793919848489,
+      "sha256": "07544cd1e9fb0bb9e965bca7701da323adbe8b21342afc838a1d1b9b22bc7b7d",
+      "started_ms": 1793919848393,
+      "url": "https://api.bybit.com/v5/market/instruments-info?category=linear&symbol=BTCUSDT",
+      "venue": "bybit"
+    },
+    {
+      "checks": {
+        "best_ask": 75639.0,
+        "best_bid": 75638.9,
+        "cross_sequence": 839918448497,
+        "exchange_time_ms": 1793919847359,
+        "matching_engine_time_ms": 1793919847358,
+        "spread_bps": 0.013220701768840097,
+        "update_id": 10226751
+      },
+      "endpoint": "book",
+      "exchange_clock_offset_ms": 1210,
+      "http_status": 200,
+      "latency_ms": 80,
+      "ok": true,
+      "raw_file": "bybit__book.json",
+      "received_ms": 1793919848569,
+      "sha256": "7f3d21ed24082437294f0c118861450aa6e19158502a88358eb42e7344015da5",
+      "started_ms": 1793919848489,
+      "url": "https://api.bybit.com/v5/market/orderbook?category=linear&symbol=BTCUSDT&limit=50",
+      "venue": "bybit"
+    },
+    {
+      "checks": {
+        "markPrice": 75640.25,
+        "openInterest": 68402.23
+      },
+      "endpoint": "ticker",
+      "exchange_clock_offset_ms": null,
+      "http_status": 200,
+      "latency_ms": 94,
+      "ok": true,
+      "raw_file": "bybit__ticker.json",
+      "received_ms": 1793919848663,
+      "sha256": "ddda5028f59305d5a9f4a8f42a90c1872b5d25f2e85a2a26b159fda5eb37ba7b",
+      "started_ms": 1793919848569,
+      "url": "https://api.bybit.com/v5/market/tickers?category=linear&symbol=BTCUSDT",
+      "venue": "bybit"
+    }
+  ],
+  "passed": 8,
+  "project": "btc-market-structure-lab",
+  "schema_version": 1,
+  "symbol": "BTCUSDT",
+  "total": 8
+}

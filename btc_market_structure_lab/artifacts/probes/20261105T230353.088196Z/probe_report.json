@@ -1,0 +1,150 @@
+{
+  "all_passed": false,
+  "created_at_utc": "2026-11-05T23:03:53.624941+00:00",
+  "endpoint_contracts": [
+    {
+      "base_url": "https://fapi.binance.com",
+      "name": "server_time",
+      "params": {},
+      "path": "/fapi/v1/time",
+      "venue": "binance"
+    },
+    {
+      "base_url": "https://fapi.binance.com",
+      "name": "book",
+      "params": {
+        "limit": 20,
+        "symbol": "BTCUSDT"
+      },
+      "path": "/fapi/v1/depth",
+      "venue": "binance"
+    },
+    {
+      "base_url": "https://fapi.binance.com",
+      "name": "mark_oi_funding",
+      "params": {
+        "symbol": "BTCUSDT"
+      },
+      "path": "/fapi/v1/premiumIndex",
+      "venue": "binance"
+    },
+    {
+      "base_url": "https://fapi.binance.com",
+      "name": "open_interest",
+      "params": {
+        "symbol": "BTCUSDT"
+      },
+      "path": "/fapi/v1/openInterest",
+      "venue": "binance"
+    },
+    {
+      "base_url": "https://api.bybit.com",
+      "name": "server_time",
+      "params": {},
+      "path": "/v5/market/time",
+      "venue": "bybit"
+    },
+    {
+      "base_url": "https://api.bybit.com",
+      "name": "instrument",
+      "params": {
+        "category": "linear",
+        "symbol": "BTCUSDT"
+      },
+      "path": "/v5/market/instruments-info",
+      "venue": "bybit"
+    },
+    {
+      "base_url": "https://api.bybit.com",
+      "name": "book",
+      "params": {
+        "category": "linear",
+        "limit": 50,
+        "symbol": "BTCUSDT"
+      },
+      "path": "/v5/market/orderbook",
+      "venue": "bybit"
+    },
+    {
+      "base_url": "https://api.bybit.com",
+      "name": "ticker",
+      "params": {
+        "category": "linear",
+        "symbol": "BTCUSDT"
+      },
+      "path": "/v5/market/tickers",
+      "venue": "bybit"
+    }
+  ],
+  "endpoints": [
+    {
+      "endpoint": "server_time",
+      "error": "<urlopen error [WinError 10013] An attempt was made to access a socket in a way forbidden by its access permissions>",
+      "error_type": "URLError",
+      "ok": false,
+      "url": "https://fapi.binance.com/fapi/v1/time",
+      "venue": "binance"
+    },
+    {
+      "endpoint": "book",
+      "error": "<urlopen error [WinError 10013] An attempt was made to access a socket in a way forbidden by its access permissions>",
+      "error_type": "URLError",
+      "ok": false,
+      "url": "https://fapi.binance.com/fapi/v1/depth?symbol=BTCUSDT&limit=20",
+      "venue": "binance"
+    },
+    {
+      "endpoint": "mark_oi_funding",
+      "error": "<urlopen error [WinError 10013] An attempt was made to access a socket in a way forbidden by its access permissions>",
+      "error_type": "URLError",
+      "ok": false,
+      "url": "https://fapi.binance.com/fapi/v1/premiumIndex?symbol=BTCUSDT",
+      "venue": "binance"
+    },
+    {
+      "endpoint": "open_interest",
+      "error": "<urlopen error [WinError 10013] An attempt was made to access a socket in a way forbidden by its access permissions>",
+      "error_type": "URLError",
+      "ok": false,
+      "url": "https://fapi.binance.com/fapi/v1/openInterest?symbol=BTCUSDT",
+      "venue": "binance"
+    },
+    {
+      "endpoint": "server_time",
+      "error": "<urlopen error [WinError 10013] An attempt was made to access a socket in a way forbidden by its access permissions>",
+      "error_type": "URLError",
+      "ok": false,
+      "url": "https://api.bybit.com/v5/market/time",
+      "venue": "bybit"
+    },
+    {
+      "endpoint": "instrument",
+      "error": "<urlopen error [WinError 10013] An attempt was made to access a socket in a way forbidden by its access permissions>",
+      "error_type": "URLError",
+      "ok": false,
+      "url": "https://api.bybit.com/v5/market/instruments-info?category=linear&symbol=BTCUSDT",
+      "venue": "bybit"
+    },
+    {
+      "endpoint": "book",
+      "error": "<urlopen error [WinError 10013] An attempt was made to access a socket in a way forbidden by its access permissions>",
+      "error_type": "URLError",
+      "ok": false,
+      "url": "https://api.bybit.com/v5/market/orderbook?category=linear&symbol=BTCUSDT&limit=50",
+      "venue": "bybit"
+    },
+    {
+      "endpoint": "ticker",
+      "error": "<urlopen error [WinError 10013] An attempt was made to access a socket in a way forbidden by its access permissions>",
+      "error_type": "URLError",
+      "ok": false,
+      "url": "https://api.bybit.com/v5/market/tickers?category=linear&symbol=BTCUSDT",
+      "venue": "bybit"
+    }
+  ],
+  "passed": 0,
+  "project": "btc-market-structure-lab",
+  "schema_version": 1,
+  "symbol": "BTCUSDT",
+  "total": 8
+}
