@@ -17,6 +17,8 @@ history and without letting connection gaps silently enter H001.
 8. Deduplicate overlap by `frame_end_ns`.
 9. Continue an epoch only when the next frame is exactly one second later.
 10. Start a new epoch after any gap. Never bridge a baseline across a gap.
+11. Freeze the first complete UTC day as the start of one 30-day study.
+12. Release one sealed result after day 30, then pause collection.
 
 ## Storage policy
 
@@ -28,6 +30,7 @@ history and without letting connection gaps silently enter H001.
   default and deletes only older generated segment directories.
 - Full raw retention requires separately sized object storage and is not
   silently enabled.
+- An inactive gapped epoch is compressed before the new epoch grows.
 
 ## Heartbeat
 
@@ -38,6 +41,7 @@ history and without letting connection gaps silently enter H001.
 - active epoch and consecutive frame count
 - 24-hour baseline progress
 - H001 baseline and candidate counts when the detector runs
+- fixed-study day progress and sealed-evaluation status
 - explicit `contains_outcomes=false` and `contains_pnl=false`
 
 ## Commands

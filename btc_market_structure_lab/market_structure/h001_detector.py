@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import bisect
-import heapq
 import json
 import math
 from collections import deque
@@ -28,88 +27,80 @@ TEN_THOUSAND = Decimal("10000")
 
 
 class RollingQuantile:
-    """Exact nearest-rank rolling quantile with lazy heap deletion."""
+    """Exact nearest-rank rolling quantile in bounded, compact sorted blocks."""
+
+    BLOCK_SIZE = 1_024
 
     def __init__(self, quantile: Decimal, maxlen: int) -> None:
         if not (Decimal("0") < quantile <= Decimal("1")):
             raise ValueError("quantile must be in (0, 1]")
         self.quantile = quantile
         self.maxlen = maxlen
-        self.lower: list[tuple[Decimal, int]] = []  # max heap via negative values
-        self.upper: list[tuple[Decimal, int]] = []
-        self.location: dict[int, str] = {}
-        self.deleted: set[int] = set()
-        self.order: deque[tuple[int, Decimal]] = deque()
-        self.next_id = 0
-        self.lower_size = 0
-        self.upper_size = 0
+        self.blocks: list[list[Decimal]] = []
+        self.maxes: list[Decimal] = []
+        self.order: deque[Decimal] = deque()
+        self.size = 0
 
     def __len__(self) -> int:
-        return self.lower_size + self.upper_size
+        return self.size
 
-    def _target_lower(self) -> int:
-        return math.ceil(float(self.quantile) * len(self)) if len(self) else 0
+    def _insert(self, value: Decimal) -> None:
+        if not self.blocks:
+            self.blocks.append([value])
+            self.maxes.append(value)
+            return
+        block_index = bisect.bisect_left(self.maxes, value)
+        if block_index == len(self.blocks):
+            block_index -= 1
+        block = self.blocks[block_index]
+        bisect.insort_right(block, value)
+        self.maxes[block_index] = block[-1]
+        if len(block) > self.BLOCK_SIZE * 2:
+            right = block[self.BLOCK_SIZE :]
+            del block[self.BLOCK_SIZE :]
+            self.blocks.insert(block_index + 1, right)
+            self.maxes[block_index] = block[-1]
+            self.maxes.insert(block_index + 1, right[-1])
 
-    def _prune_lower(self) -> None:
-        while self.lower and self.lower[0][1] in self.deleted:
-            _, item_id = heapq.heappop(self.lower)
-            self.deleted.discard(item_id)
-
-    def _prune_upper(self) -> None:
-        while self.upper and self.upper[0][1] in self.deleted:
-            _, item_id = heapq.heappop(self.upper)
-            self.deleted.discard(item_id)
-
-    def _rebalance(self) -> None:
-        self._prune_lower()
-        self._prune_upper()
-        target = self._target_lower()
-        while self.lower_size > target:
-            self._prune_lower()
-            negative, item_id = heapq.heappop(self.lower)
-            value = -negative
-            heapq.heappush(self.upper, (value, item_id))
-            self.location[item_id] = "upper"
-            self.lower_size -= 1
-            self.upper_size += 1
-        while self.lower_size < target:
-            self._prune_upper()
-            value, item_id = heapq.heappop(self.upper)
-            heapq.heappush(self.lower, (-value, item_id))
-            self.location[item_id] = "lower"
-            self.upper_size -= 1
-            self.lower_size += 1
-        self._prune_lower()
-        self._prune_upper()
+    def _remove(self, value: Decimal) -> None:
+        block_index = bisect.bisect_left(self.maxes, value)
+        if block_index == len(self.blocks):
+            raise RuntimeError("rolling quantile lost an active value")
+        block = self.blocks[block_index]
+        position = bisect.bisect_left(block, value)
+        if position == len(block) or block[position] != value:
+            raise RuntimeError("rolling quantile lost an active value")
+        block.pop(position)
+        if block:
+            self.maxes[block_index] = block[-1]
+        else:
+            self.blocks.pop(block_index)
+            self.maxes.pop(block_index)
 
     def add(self, value: Decimal) -> None:
-        item_id = self.next_id
-        self.next_id += 1
-        self._prune_lower()
-        if not self.lower or value <= -self.lower[0][0]:
-            heapq.heappush(self.lower, (-value, item_id))
-            self.location[item_id] = "lower"
-            self.lower_size += 1
-        else:
-            heapq.heappush(self.upper, (value, item_id))
-            self.location[item_id] = "upper"
-            self.upper_size += 1
-        self.order.append((item_id, value))
+        self._insert(value)
+        self.order.append(value)
+        self.size += 1
         if len(self.order) > self.maxlen:
-            expired_id, _ = self.order.popleft()
-            location = self.location.pop(expired_id)
-            self.deleted.add(expired_id)
-            if location == "lower":
-                self.lower_size -= 1
-            else:
-                self.upper_size -= 1
-        self._rebalance()
+            self._remove(self.order.popleft())
+            self.size -= 1
 
     def value(self) -> Decimal:
-        if not self.lower_size:
+        if not self.size:
             raise ValueError("rolling quantile is empty")
-        self._prune_lower()
-        return -self.lower[0][0]
+        rank = math.ceil(float(self.quantile) * self.size) - 1
+        if rank <= self.size - rank - 1:
+            for block in self.blocks:
+                if rank < len(block):
+                    return block[rank]
+                rank -= len(block)
+        else:
+            reverse_rank = self.size - rank - 1
+            for block in reversed(self.blocks):
+                if reverse_rank < len(block):
+                    return block[-reverse_rank - 1]
+                reverse_rank -= len(block)
+        raise RuntimeError("rolling quantile rank is out of bounds")
 
 
 @dataclass(frozen=True)
@@ -123,6 +114,129 @@ class PendingCandidate:
     impulse_flow: Decimal
     threshold_bps: Decimal
     impulse_bps: Decimal
+
+
+class StreamingDetector:
+    """Causal detector that retains only the active frame window and baseline."""
+
+    def __init__(self) -> None:
+        self.quantile = RollingQuantile(TAIL_QUANTILE, BASELINE_SECONDS)
+        self.history: deque[dict[str, Any]] = deque(
+            maxlen=IMPULSE_SECONDS + REJECTION_SECONDS + 1
+        )
+        self.pending: PendingCandidate | None = None
+        self.cooldown_until = -1
+        self.previous_end_ns: int | None = None
+        self.frames = 0
+        self.candidates = 0
+        self.accepted = 0
+        self.rejected = 0
+
+    def add(self, frame: dict[str, Any]) -> dict[str, Any] | None:
+        index = self.frames
+        end_ns = int(frame["frame_end_ns"])
+        if (
+            self.previous_end_ns is not None
+            and end_ns != self.previous_end_ns + 1_000_000_000
+        ):
+            raise ValueError("state frames must be consecutive one-second buckets")
+        self.previous_end_ns = end_ns
+        self.history.append(frame)
+        self.frames += 1
+        emitted: dict[str, Any] | None = None
+
+        if self.pending is not None and index == self.pending.decision_index:
+            window = list(self.history)
+            if len(window) != IMPULSE_SECONDS + REJECTION_SECONDS + 1:
+                raise ValueError("pending candidate window is incomplete")
+            local_pending = PendingCandidate(
+                candidate_index=IMPULSE_SECONDS,
+                decision_index=IMPULSE_SECONDS + REJECTION_SECONDS,
+                impulse_sign=self.pending.impulse_sign,
+                impulse_start_mid=self.pending.impulse_start_mid,
+                extreme_mid=self.pending.extreme_mid,
+                impulse_size=self.pending.impulse_size,
+                impulse_flow=self.pending.impulse_flow,
+                threshold_bps=self.pending.threshold_bps,
+                impulse_bps=self.pending.impulse_bps,
+            )
+            emitted = _evaluate_pending(local_pending, window)
+            self.candidates += 1
+            if emitted["accepted"]:
+                self.accepted += 1
+            else:
+                self.rejected += 1
+            self.pending = None
+
+        if index < IMPULSE_SECONDS:
+            return emitted
+
+        impulse_window = list(self.history)[-(IMPULSE_SECONDS + 1) :]
+        start_mid = _mid(impulse_window[0])
+        current_mid = _mid(frame)
+        impulse_bps = (current_mid / start_mid - 1) * TEN_THOUSAND
+        absolute_bps = abs(impulse_bps)
+        baseline_ready = len(self.quantile) >= MIN_BASELINE_SECONDS
+        threshold = self.quantile.value() if baseline_ready else None
+
+        if (
+            self.pending is None
+            and index >= self.cooldown_until
+            and baseline_ready
+            and threshold is not None
+            and absolute_bps >= threshold
+        ):
+            mids = [_mid(item) for item in impulse_window]
+            sign = 1 if impulse_bps > 0 else -1
+            at_extreme = current_mid == (max(mids) if sign > 0 else min(mids))
+            impulse_flow = sum(
+                (_net_flow(item) for item in impulse_window[1:]), Decimal("0")
+            )
+            flow_aligned = impulse_flow * Decimal(sign) > 0
+            quality_ok = _eligible_quality(impulse_window)
+            if at_extreme and flow_aligned and quality_ok:
+                size = abs(current_mid - start_mid)
+                if size > 0:
+                    self.pending = PendingCandidate(
+                        candidate_index=index,
+                        decision_index=index + REJECTION_SECONDS,
+                        impulse_sign=sign,
+                        impulse_start_mid=start_mid,
+                        extreme_mid=current_mid,
+                        impulse_size=size,
+                        impulse_flow=impulse_flow,
+                        threshold_bps=threshold,
+                        impulse_bps=impulse_bps,
+                    )
+                    self.cooldown_until = index + COOLDOWN_SECONDS
+
+        self.quantile.add(absolute_bps)
+        return emitted
+
+    def manifest(self) -> dict[str, Any]:
+        return {
+            "schema_version": 1,
+            "hypothesis": "H001",
+            "frames": self.frames,
+            "baseline_observations": len(self.quantile),
+            "baseline_ready": len(self.quantile) >= MIN_BASELINE_SECONDS,
+            "candidates": self.candidates,
+            "accepted": self.accepted,
+            "rejected": self.rejected,
+            "contains_outcomes": False,
+            "contains_pnl": False,
+            "parameters": {
+                "impulse_seconds": IMPULSE_SECONDS,
+                "rejection_seconds": REJECTION_SECONDS,
+                "cooldown_seconds": COOLDOWN_SECONDS,
+                "baseline_seconds": BASELINE_SECONDS,
+                "minimum_baseline_seconds": MIN_BASELINE_SECONDS,
+                "tail_quantile": str(TAIL_QUANTILE),
+                "minimum_retrace": str(MIN_RETRACE),
+                "maximum_flow_rate_ratio": str(MAX_FLOW_RATE_RATIO),
+                "maximum_book_age_ms": MAX_BOOK_AGE_MS,
+            },
+        }
 
 
 def _mid(frame: dict[str, Any], venue: str | None = None) -> Decimal:
@@ -203,6 +317,9 @@ def _evaluate_pending(
         "rejection_reasons": reasons,
         "impulse_direction": "UP" if pending.impulse_sign > 0 else "DOWN",
         "research_direction": research_direction,
+        "impulse_start_mid": format(pending.impulse_start_mid, "f"),
+        "sweep_extreme_mid": format(pending.extreme_mid, "f"),
+        "decision_mid": format(decision_mid, "f"),
         "impulse_bps": format(pending.impulse_bps, "f"),
         "causal_tail_threshold_bps": format(pending.threshold_bps, "f"),
         "retrace_fraction": format(retrace, "f"),
@@ -228,101 +345,33 @@ def _evaluate_pending(
 
 
 def detect(frames: list[dict[str, Any]]) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    quantile = RollingQuantile(TAIL_QUANTILE, BASELINE_SECONDS)
+    detector = StreamingDetector()
     candidates: list[dict[str, Any]] = []
-    pending: PendingCandidate | None = None
-    cooldown_until = -1
-    previous_end_ns: int | None = None
-
-    for index, frame in enumerate(frames):
-        end_ns = int(frame["frame_end_ns"])
-        if previous_end_ns is not None and end_ns != previous_end_ns + 1_000_000_000:
-            raise ValueError("state frames must be consecutive one-second buckets")
-        previous_end_ns = end_ns
-
-        if pending is not None and index == pending.decision_index:
-            candidates.append(_evaluate_pending(pending, frames))
-            pending = None
-
-        if index < IMPULSE_SECONDS:
-            continue
-        start_mid = _mid(frames[index - IMPULSE_SECONDS])
-        current_mid = _mid(frame)
-        impulse_bps = (current_mid / start_mid - 1) * TEN_THOUSAND
-        absolute_bps = abs(impulse_bps)
-        baseline_ready = len(quantile) >= MIN_BASELINE_SECONDS
-        threshold = quantile.value() if baseline_ready else None
-
-        if (
-            pending is None
-            and index >= cooldown_until
-            and baseline_ready
-            and threshold is not None
-            and absolute_bps >= threshold
-            and index + REJECTION_SECONDS < len(frames)
-        ):
-            impulse_window = frames[index - IMPULSE_SECONDS : index + 1]
-            mids = [_mid(item) for item in impulse_window]
-            sign = 1 if impulse_bps > 0 else -1
-            at_extreme = current_mid == (max(mids) if sign > 0 else min(mids))
-            impulse_flow = sum(
-                (_net_flow(item) for item in frames[index - IMPULSE_SECONDS + 1 : index + 1]),
-                Decimal("0"),
-            )
-            flow_aligned = impulse_flow * Decimal(sign) > 0
-            quality_ok = _eligible_quality(impulse_window)
-            if at_extreme and flow_aligned and quality_ok:
-                extreme = current_mid
-                size = abs(extreme - start_mid)
-                if size > 0:
-                    pending = PendingCandidate(
-                        candidate_index=index,
-                        decision_index=index + REJECTION_SECONDS,
-                        impulse_sign=sign,
-                        impulse_start_mid=start_mid,
-                        extreme_mid=extreme,
-                        impulse_size=size,
-                        impulse_flow=impulse_flow,
-                        threshold_bps=threshold,
-                        impulse_bps=impulse_bps,
-                    )
-                    cooldown_until = index + COOLDOWN_SECONDS
-
-        quantile.add(absolute_bps)
-
-    manifest = {
-        "schema_version": 1,
-        "hypothesis": "H001",
-        "frames": len(frames),
-        "baseline_observations": len(quantile),
-        "baseline_ready": len(quantile) >= MIN_BASELINE_SECONDS,
-        "candidates": len(candidates),
-        "accepted": sum(bool(item["accepted"]) for item in candidates),
-        "rejected": sum(not bool(item["accepted"]) for item in candidates),
-        "contains_outcomes": False,
-        "contains_pnl": False,
-        "parameters": {
-            "impulse_seconds": IMPULSE_SECONDS,
-            "rejection_seconds": REJECTION_SECONDS,
-            "cooldown_seconds": COOLDOWN_SECONDS,
-            "baseline_seconds": BASELINE_SECONDS,
-            "minimum_baseline_seconds": MIN_BASELINE_SECONDS,
-            "tail_quantile": str(TAIL_QUANTILE),
-            "minimum_retrace": str(MIN_RETRACE),
-            "maximum_flow_rate_ratio": str(MAX_FLOW_RATE_RATIO),
-            "maximum_book_age_ms": MAX_BOOK_AGE_MS,
-        },
-    }
-    return candidates, manifest
+    for frame in frames:
+        emitted = detector.add(frame)
+        if emitted is not None:
+            candidates.append(emitted)
+    return candidates, detector.manifest()
 
 
 def run_file(state_frame_path: Path) -> Path:
-    frames = [json.loads(line) for line in state_frame_path.read_text(encoding="utf-8").splitlines()]
-    candidates, manifest = detect(frames)
     output = state_frame_path.with_name("h001_candidates.jsonl")
-    with output.open("w", encoding="utf-8", newline="\n") as handle:
-        for candidate in candidates:
-            handle.write(json.dumps(candidate, separators=(",", ":"), sort_keys=True) + "\n")
+    temporary_output = output.with_name(output.name + ".tmp")
+    detector = StreamingDetector()
+    with state_frame_path.open(encoding="utf-8") as source, temporary_output.open(
+        "w", encoding="utf-8", newline="\n"
+    ) as handle:
+        for line in source:
+            if not line.strip():
+                continue
+            candidate = detector.add(json.loads(line))
+            if candidate is not None:
+                handle.write(
+                    json.dumps(candidate, separators=(",", ":"), sort_keys=True)
+                    + "\n"
+                )
+    temporary_output.replace(output)
+    manifest = detector.manifest()
     manifest["source"] = str(state_frame_path)
     manifest["output"] = output.name
     manifest_path = state_frame_path.with_name("h001_detector_manifest.json")

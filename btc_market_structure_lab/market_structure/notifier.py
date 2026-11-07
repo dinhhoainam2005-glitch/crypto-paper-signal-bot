@@ -25,6 +25,7 @@ def format_operational_message(
     state = heartbeat.get("state") or {}
     last = heartbeat.get("last_segment") or {}
     h001 = heartbeat.get("h001") or {}
+    evaluation = heartbeat.get("h001_evaluation") or {}
     frames = int(state.get("epoch_frames") or 0)
     progress = min(100.0, frames / BASELINE_REQUIRED_FRAMES * 100.0)
     data_status = str(heartbeat.get("status", "STARTING"))
@@ -49,6 +50,13 @@ def format_operational_message(
                 f"{int(h001.get('candidates') or 0)} | "
                 f"đạt {int(h001.get('accepted') or 0)} | "
                 f"loại {int(h001.get('rejected') or 0)}"
+            ),
+            (
+                "Đánh giá sealed: "
+                f"{evaluation.get('status', 'CHƯA CHẠY')} | "
+                f"ngày {int(evaluation.get('complete_days') or 0)}/"
+                f"{int(evaluation.get('required_days') or 30)} | "
+                f"test matched {int(evaluation.get('matched_test_events') or 0)}"
             ),
             "Phạm vi: BTC | Binance + Bybit | Nghiên cứu dữ liệu",
             "KHÔNG PHẢI TÍN HIỆU TRADE / KHÔNG TỰ ĐẶT LỆNH",

@@ -69,3 +69,14 @@ prohibited.
   isolated wheel build containing every runtime module.
 - Deployment remains intentionally pending because it creates a separate paid
   service and disk.
+
+## 2026-11-07 - Fixed sealed study and deployment hardening passed
+
+- Superseded the moving split before any real outcome was released.
+- Froze a 30-day 15/7/8 calendar and one-time sealed evaluation in
+  `H001_EVALUATION_SPEC_V2.md`.
+- Fixed Binance bootstrap retry, stale/cross-split outcomes, restart-safe
+  scheduling, audit reconciliation, and long-run RAM/disk bounds.
+- Passed 50 tests and a final 2/2 live overlap run with zero rejects, replay
+  gaps, crossed books, or normalization rejects.
+- Approved deployment for data collection only; H001 quality remains unknown.

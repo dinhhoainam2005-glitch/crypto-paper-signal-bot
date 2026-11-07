@@ -2,7 +2,7 @@
 
 ## Deployment status
 
-Prepared but not deployed.
+Prepared and verified; deployment pending.
 
 The Blueprint is `render.forward.yaml`. Automatic deploys are disabled so that
 committing or pushing this file cannot create a paid service by itself.
@@ -16,21 +16,25 @@ committing or pushing this file cannot create a paid service by itself.
 - Health check: `/health`
 - Data readiness: `/ready`
 - Full read-only state: `/status`
-- Persistent disk: 1 GB mounted at `/var/data`
+- Persistent disk: 2 GB mounted at `/var/data`
 - Durable data root: `/var/data/forward`
 - Five-minute capture sessions with 30-second overlap
-- H001 audit every 12 committed segments, approximately hourly
+- H001 detector and sealed evaluator every 320 committed segments,
+  approximately daily; data collection and health heartbeat remain continuous
+- Fixed study: 30 complete UTC days (15 calibration, 7 validation, 8 test)
+- Collection pauses after the immutable sealed result is written
 - Latest two completed raw segments retained; compact causal ledger retained
 - Optional Vietnamese Telegram operational heartbeat every hour
 - Telegram token and chat ID are secret environment variables, never committed
 
 ## Cost boundary
 
-Checked against Render's official pricing on 2026-11-06:
+Checked against Render's official pricing on 2026-11-07:
 
 - `0.5c-512mb`: USD 7 per month
 - persistent disk: USD 0.25 per GB per month
-- estimated base total for this new isolated service: USD 7.25 per month,
+- 2 GB persistent disk: USD 0.50 per month
+- estimated base total for this new isolated service: USD 7.50 per month,
   before tax or excess bandwidth
 
 Creating this service would be a new recurring charge unless another paid

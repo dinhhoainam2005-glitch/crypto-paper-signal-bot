@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import gzip
 import json
 import os
 import shutil
@@ -16,6 +17,7 @@ from typing import Any
 from .book_replay import ReplayError, audit_replay
 from .collector import capture
 from .h001_detector import IMPULSE_SECONDS, MIN_BASELINE_SECONDS, run_file
+from .h001_evaluator import run_data_root as run_h001_evaluation
 from .normalize import normalize_capture
 from .state_frames import build_file
 
@@ -64,6 +66,9 @@ def project_h001_frame(frame: dict[str, Any]) -> dict[str, Any]:
         "frame_end_ns": int(frame["frame_end_ns"]),
         "consolidated_mid": frame["consolidated_mid"],
         "binance_minus_bybit_bps": frame["binance_minus_bybit_bps"],
+        "binance_funding_rate": frame["venues"]["binance"]
+        .get("market_state", {})
+        .get("funding_rate"),
         "venues": venues,
     }
 
@@ -87,9 +92,11 @@ def _default_state() -> dict[str, Any]:
         "active_epoch_file": None,
         "last_frame_end_ns": None,
         "epoch_frames": 0,
+        "active_epoch_segments_committed": 0,
         "total_unique_frames": 0,
         "segments_committed": 0,
         "segments_rejected": 0,
+        "last_detector_epoch_segments": 0,
         "updated_at_utc": None,
     }
 
@@ -113,10 +120,45 @@ def _ledger_tail(path: Path) -> tuple[int | None, int]:
     return last, count
 
 
+def study_is_sealed(data_root: Path) -> bool:
+    state = _load_state(data_root)
+    relative = state.get("active_epoch_file")
+    if not relative:
+        return False
+    ledger = data_root / str(relative)
+    return ledger.with_name("h001_sealed_result.json").exists()
+
+
 def _new_epoch(data_root: Path, number: int) -> Path:
     epoch_dir = data_root / "epochs" / f"epoch_{number:06d}"
     epoch_dir.mkdir(parents=True, exist_ok=False)
     return epoch_dir / LEDGER_FILE
+
+
+def _archive_inactive_ledger(ledger: Path, data_root: Path) -> dict[str, Any]:
+    epochs_root = (data_root / "epochs").resolve()
+    resolved = ledger.resolve()
+    if resolved.parent.parent != epochs_root or not resolved.exists():
+        return {"status": "SKIPPED", "ledger": str(ledger)}
+    output = resolved.with_suffix(resolved.suffix + ".gz")
+    temporary = output.with_suffix(output.suffix + ".tmp")
+    try:
+        with resolved.open("rb") as source, gzip.open(temporary, "wb") as target:
+            shutil.copyfileobj(source, target, length=1024 * 1024)
+        temporary.replace(output)
+        resolved.unlink()
+        return {
+            "status": "COMPRESSED",
+            "ledger": str(output.relative_to(data_root.resolve())),
+            "bytes": output.stat().st_size,
+        }
+    except OSError as exc:
+        temporary.unlink(missing_ok=True)
+        return {
+            "status": "ERROR",
+            "ledger": str(ledger),
+            "error": f"{type(exc).__name__}: {exc}",
+        }
 
 
 def commit_frames(
@@ -139,6 +181,7 @@ def commit_frames(
     )
     ledger_last: int | None = None
     ledger_count = 0
+    inactive_ledger: Path | None = None
     if ledger is not None:
         ledger_last, ledger_count = _ledger_tail(ledger)
         state["last_frame_end_ns"] = ledger_last
@@ -149,6 +192,8 @@ def commit_frames(
         ledger = _new_epoch(data_root, epoch_number)
         state["active_epoch"] = epoch_number
         state["active_epoch_file"] = str(ledger.relative_to(data_root))
+        state["active_epoch_segments_committed"] = 0
+        state["last_detector_epoch_segments"] = 0
 
     if ledger_last is None:
         new_frames = frames
@@ -162,12 +207,15 @@ def commit_frames(
         elif int(new_frames[0]["frame_end_ns"]) == ledger_last + ONE_SECOND_NS:
             continuity = "CONTIGUOUS"
         else:
+            inactive_ledger = ledger
             epoch_number += 1
             ledger = _new_epoch(data_root, epoch_number)
             state["active_epoch"] = epoch_number
             state["active_epoch_file"] = str(ledger.relative_to(data_root))
             state["last_frame_end_ns"] = None
             state["epoch_frames"] = 0
+            state["active_epoch_segments_committed"] = 0
+            state["last_detector_epoch_segments"] = 0
             continuity = "GAP_NEW_EPOCH"
 
     if new_frames:
@@ -183,8 +231,16 @@ def commit_frames(
         )
 
     state["segments_committed"] = int(state["segments_committed"]) + 1
+    state["active_epoch_segments_committed"] = int(
+        state.get("active_epoch_segments_committed", 0)
+    ) + 1
     state["updated_at_utc"] = _utc_now()
     _atomic_json(data_root / "forward_state.json", state)
+    archived_epoch = (
+        _archive_inactive_ledger(inactive_ledger, data_root)
+        if inactive_ledger is not None
+        else None
+    )
 
     result = {
         "segment_id": segment_id,
@@ -195,12 +251,15 @@ def commit_frames(
         "active_epoch": state["active_epoch"],
         "active_epoch_file": state["active_epoch_file"],
         "epoch_frames": state["epoch_frames"],
+        "epoch_segments_committed": state["active_epoch_segments_committed"],
         "baseline_progress_pct": min(
             100.0, float(state["epoch_frames"]) / BASELINE_REQUIRED_FRAMES * 100.0
         ),
         "baseline_ready": int(state["epoch_frames"]) >= BASELINE_REQUIRED_FRAMES,
         "committed_at_utc": _utc_now(),
     }
+    if archived_epoch is not None:
+        result["archived_previous_epoch"] = archived_epoch
     return result
 
 
@@ -369,6 +428,14 @@ def run_detector(data_root: Path) -> dict[str, Any]:
     ledger = data_root / str(relative)
     manifest_path = run_file(ledger)
     manifest = _read_json(manifest_path)
+    evaluation_path = run_h001_evaluation(data_root)
+    evaluation = _read_json(evaluation_path)
+    state = _load_state(data_root)
+    state["last_detector_epoch_segments"] = int(
+        state.get("active_epoch_segments_committed", 0)
+    )
+    state["updated_at_utc"] = _utc_now()
+    _atomic_json(data_root / "forward_state.json", state)
     _write_heartbeat(
         data_root,
         {
@@ -380,6 +447,17 @@ def run_detector(data_root: Path) -> dict[str, Any]:
                 "candidates": manifest["candidates"],
                 "accepted": manifest["accepted"],
                 "rejected": manifest["rejected"],
+            },
+            "h001_evaluation": {
+                "status": evaluation["status"],
+                "complete_days": evaluation["days"]["complete_days"],
+                "required_days": evaluation["days"].get("required_days"),
+                "sealed_outcomes_released": evaluation["sealed_outcomes_released"],
+                "matched_test_events": evaluation.get(
+                    "sealed_test_sample_gate", {}
+                ).get("matched", 0),
+                "data_quality_passed": evaluation["data_quality_passed"],
+                "report": str(evaluation_path),
             },
         },
     )
@@ -401,6 +479,7 @@ async def record_forward(
     queue: asyncio.Queue[tuple[int, Path | None, BaseException | None] | None] = (
         asyncio.Queue()
     )
+    stop_requested = asyncio.Event()
 
     async def capture_one(index: int) -> None:
         try:
@@ -414,6 +493,8 @@ async def record_forward(
         try:
             index = 0
             while segments == 0 or index < segments:
+                if stop_requested.is_set():
+                    break
                 task = asyncio.create_task(capture_one(index))
                 active.add(task)
                 task.add_done_callback(active.discard)
@@ -433,7 +514,6 @@ async def record_forward(
     producer = asyncio.create_task(produce())
     buffered: dict[int, tuple[Path | None, BaseException | None]] = {}
     expected = 0
-    completed = 0
     producer_done = False
     try:
         while not producer_done or buffered:
@@ -467,15 +547,17 @@ async def record_forward(
                     )
                 if segments != 0:
                     results.append(result)
-                completed += 1
                 expected += 1
 
-                if (
-                    result["status"] == "COMMITTED"
-                    and detector_every_segments > 0
-                    and completed % detector_every_segments == 0
-                ):
-                    await asyncio.to_thread(run_detector, data_root)
+                if result["status"] == "COMMITTED" and detector_every_segments > 0:
+                    state = _load_state(data_root)
+                    committed_since_detector = int(
+                        state.get("active_epoch_segments_committed", 0)
+                    ) - int(state.get("last_detector_epoch_segments", 0))
+                    if committed_since_detector >= detector_every_segments:
+                        await asyncio.to_thread(run_detector, data_root)
+                        if study_is_sealed(data_root):
+                            stop_requested.set()
                 if result["status"] == "COMMITTED":
                     retention = await asyncio.to_thread(
                         prune_completed_segments, data_root, raw_retention_segments
@@ -511,7 +593,7 @@ def main() -> int:
         help="Finite segment count; use 0 only in a supervised 24/7 service.",
     )
     parser.add_argument("--data-root", type=Path, default=Path("artifacts/forward"))
-    parser.add_argument("--detector-every-segments", type=int, default=4)
+    parser.add_argument("--detector-every-segments", type=int, default=320)
     parser.add_argument("--raw-retention-segments", type=int, default=2)
     args = parser.parse_args()
     if args.duration <= 5 or args.duration > 3600:

@@ -14,7 +14,7 @@ services:
     disk:
       name: btc-structure-data
       mountPath: /var/data
-      sizeGB: 1
+      sizeGB: 2
     envVars:
       - key: DATA_ROOT
         value: /var/data/forward
@@ -23,7 +23,7 @@ services:
       - key: SEGMENT_OVERLAP_SECONDS
         value: "30"
       - key: DETECTOR_EVERY_SEGMENTS
-        value: "12"
+        value: "320"
       - key: RAW_RETENTION_SEGMENTS
         value: "2"
       - key: TELEGRAM_HEARTBEAT_SECONDS

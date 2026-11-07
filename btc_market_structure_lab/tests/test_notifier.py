@@ -23,12 +23,20 @@ class NotifierTests(unittest.TestCase):
                 "accepted": 1,
                 "rejected": 2,
             },
+            "h001_evaluation": {
+                "status": "INCONCLUSIVE_INSUFFICIENT_SAMPLE",
+                "complete_days": 30,
+                "required_days": 30,
+                "matched_test_events": 12,
+            },
         }
         message = format_operational_message(heartbeat, startup=True)
         self.assertIn("ĐÃ KHỞI ĐỘNG", message)
         self.assertIn("50.00%", message)
         self.assertIn("CHƯA ĐỦ 24H", message)
         self.assertIn("KHÔNG PHẢI TÍN HIỆU TRADE", message)
+        self.assertIn("test matched 12", message)
+        self.assertIn("ngày 30/30", message)
 
 
 if __name__ == "__main__":

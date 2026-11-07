@@ -259,30 +259,68 @@ async def _initialize_binance_depth(
     if not saw_depth:
         raise TimeoutError("Binance depth stream did not become active before snapshot")
 
-    snapshot_task = asyncio.create_task(asyncio.to_thread(_download_binance_depth_snapshot))
-    while not snapshot_task.done() and (remaining := deadline - loop.time()) > 0:
-        try:
-            message = await asyncio.wait_for(ws.recv(), timeout=min(0.05, remaining))
-        except TimeoutError:
-            continue
-        original_receipt_ns = time.time_ns()
-        try:
-            payload = json.loads(message)
-            if not isinstance(payload, dict):
-                raise ValueError("market message must be a JSON object")
-        except (TypeError, ValueError, json.JSONDecodeError):
-            audit.malformed += 1
-            continue
-        buffered.append((original_receipt_ns, payload))
+    snapshot_attempts = 0
+    while True:
+        remaining = deadline - loop.time()
+        if remaining <= 0:
+            raise TimeoutError("Binance depth bootstrap exceeded capture deadline")
+        snapshot_attempts += 1
+        snapshot_task = asyncio.create_task(
+            asyncio.to_thread(
+                _download_binance_depth_snapshot,
+                max(1.0, min(10.0, remaining)),
+            )
+        )
+        while not snapshot_task.done() and (remaining := deadline - loop.time()) > 0:
+            try:
+                message = await asyncio.wait_for(
+                    ws.recv(), timeout=min(0.05, remaining)
+                )
+            except TimeoutError:
+                continue
+            original_receipt_ns = time.time_ns()
+            try:
+                payload = json.loads(message)
+                if not isinstance(payload, dict):
+                    raise ValueError("market message must be a JSON object")
+            except (TypeError, ValueError, json.JSONDecodeError):
+                audit.malformed += 1
+                continue
+            buffered.append((original_receipt_ns, payload))
 
-    if not snapshot_task.done():
-        snapshot_task.cancel()
-        await asyncio.gather(snapshot_task, return_exceptions=True)
-        raise TimeoutError("Binance depth snapshot exceeded capture deadline")
-    snapshot, snapshot_receipt_ns = await snapshot_task
-    before, after, stale_depth = _prepare_binance_bootstrap(
-        snapshot, snapshot_receipt_ns, buffered
-    )
+        if not snapshot_task.done():
+            snapshot_task.cancel()
+            await asyncio.gather(snapshot_task, return_exceptions=True)
+            raise TimeoutError("Binance depth snapshot exceeded capture deadline")
+        snapshot, snapshot_receipt_ns = await snapshot_task
+        snapshot_id = int(snapshot["lastUpdateId"])
+        while not any(
+            (depth := _binance_depth_data(payload)) is not None
+            and int(depth["u"]) > snapshot_id
+            for _, payload in buffered
+        ):
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                raise TimeoutError("Binance depth stream produced no snapshot bridge")
+            message = await asyncio.wait_for(ws.recv(), timeout=remaining)
+            original_receipt_ns = time.time_ns()
+            try:
+                payload = json.loads(message)
+                if not isinstance(payload, dict):
+                    raise ValueError("market message must be a JSON object")
+            except (TypeError, ValueError, json.JSONDecodeError):
+                audit.malformed += 1
+                continue
+            buffered.append((original_receipt_ns, payload))
+        try:
+            before, after, stale_depth = _prepare_binance_bootstrap(
+                snapshot, snapshot_receipt_ns, buffered
+            )
+            break
+        except ValueError as exc:
+            if "does not bridge" not in str(exc):
+                raise
+            audit.counts["bootstrap_snapshot_retries"] += 1
 
     for receipt_ns, payload in before:
         _write_payload(handle, "binance", receipt_ns, payload, "websocket")
@@ -291,6 +329,7 @@ async def _initialize_binance_depth(
         handle, "binance", snapshot_receipt_ns, snapshot, "rest_snapshot"
     )
     audit.observe(snapshot, snapshot_receipt_ns // 1_000_000)
+    audit.counts["bootstrap_snapshot_attempts"] += snapshot_attempts
     audit.counts["bootstrap_stale_depth_dropped"] += stale_depth
 
     last_written_ns = snapshot_receipt_ns

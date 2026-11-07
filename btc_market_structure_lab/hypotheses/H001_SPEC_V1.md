@@ -86,6 +86,10 @@ pseudo-direction rule from the sign of its preceding impulse.
 
 ## Chronological evaluation
 
+The calendar details below were superseded before any real outcome was
+released. `H001_EVALUATION_SPEC_V2.md` is authoritative and fixes one 30-day
+calendar to prevent moving splits and repeated sealed-test inspection.
+
 - Earliest 50% of complete UTC days: baseline and calibration.
 - Next 25%: validation.
 - Final 25%: sealed test.

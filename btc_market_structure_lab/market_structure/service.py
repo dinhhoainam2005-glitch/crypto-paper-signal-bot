@@ -10,7 +10,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .forward_recorder import _write_heartbeat, record_forward
+from .forward_recorder import _write_heartbeat, record_forward, study_is_sealed
 from .notifier import TelegramNotifier, format_operational_message
 
 
@@ -98,6 +98,9 @@ async def _supervise_recorder(
     raw_retention_segments: int,
 ) -> None:
     while True:
+        if study_is_sealed(data_root):
+            await asyncio.sleep(60)
+            continue
         try:
             await record_forward(
                 duration,
@@ -242,7 +245,7 @@ def main() -> int:
     parser.add_argument(
         "--detector-every-segments",
         type=int,
-        default=int(os.getenv("DETECTOR_EVERY_SEGMENTS", "12")),
+        default=int(os.getenv("DETECTOR_EVERY_SEGMENTS", "320")),
     )
     parser.add_argument(
         "--raw-retention-segments",

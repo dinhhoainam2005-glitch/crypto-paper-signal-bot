@@ -8,6 +8,7 @@ from market_structure.forward_recorder import (
     commit_frames,
     prune_completed_segments,
     project_h001_frame,
+    study_is_sealed,
 )
 
 
@@ -20,6 +21,7 @@ def _frame(second: int) -> dict:
         "best_bid": "99.9",
         "best_ask": "100.1",
         "imbalance_5bps": "0.2",
+        "market_state": {"funding_rate": "0.0001"},
     }
     return {
         "frame_end_ns": second * 1_000_000_000,
@@ -43,6 +45,7 @@ class ForwardRecorderTests(unittest.TestCase):
             {"mid", "book_age_ms", "net_aggressive_notional", "imbalance_10bps"},
         )
         self.assertNotIn("best_bid", projected["venues"]["binance"])
+        self.assertEqual(projected["binance_funding_rate"], "0.0001")
 
     def test_overlap_is_idempotent_and_appends_only_new_frames(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -59,6 +62,7 @@ class ForwardRecorderTests(unittest.TestCase):
             self.assertEqual(result_two["continuity"], "CONTIGUOUS")
             self.assertEqual(result_two["appended_frames"], 2)
             self.assertEqual(result_two["epoch_frames"], 5)
+            self.assertEqual(result_two["epoch_segments_committed"], 2)
 
             ledger = root / "forward" / result_two["active_epoch_file"]
             ends = [json.loads(line)["frame_end_ns"] for line in ledger.read_text().splitlines()]
@@ -78,7 +82,27 @@ class ForwardRecorderTests(unittest.TestCase):
             self.assertEqual(result["continuity"], "GAP_NEW_EPOCH")
             self.assertEqual(result["active_epoch"], 2)
             self.assertEqual(result["epoch_frames"], 2)
+            self.assertEqual(result["epoch_segments_committed"], 1)
             self.assertFalse(result["baseline_ready"])
+            self.assertEqual(
+                result["archived_previous_epoch"]["status"], "COMPRESSED"
+            )
+            self.assertTrue(
+                (root / "forward" / "epochs" / "epoch_000001" / "h001_frames.jsonl.gz").exists()
+            )
+
+    def test_sealed_study_is_detected_from_active_epoch(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "frames.jsonl"
+            _write_frames(source, [1, 2, 3])
+            result = commit_frames(source, root / "forward", "one")
+            self.assertFalse(study_is_sealed(root / "forward"))
+            ledger = root / "forward" / result["active_epoch_file"]
+            ledger.with_name("h001_sealed_result.json").write_text(
+                "{}\n", encoding="utf-8"
+            )
+            self.assertTrue(study_is_sealed(root / "forward"))
 
     def test_nonconsecutive_segment_is_rejected(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

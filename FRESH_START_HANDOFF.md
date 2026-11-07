@@ -1,6 +1,6 @@
 # Fresh Start Handoff
 
-Updated: 2026-11-06
+Updated: 2026-11-07
 
 ## User directive
 
@@ -99,9 +99,15 @@ Additional work completed on 2026-11-06:
 - Retention now deletes only explicitly committed segments and cannot remove a
   downloaded-but-unprocessed backlog.
 - Isolated deployment wheel built successfully with every runtime module.
-- Automated tests: 39 passed; staged diff and secret scan passed.
+- H001 evaluation v2 is frozen to 30 complete days (15/7/8) with one immutable
+  sealed result; no moving split or optional stopping remains.
+- Long-run detector/evaluator memory was compacted for Render 512 MB; the exact
+  seven-day quantile benchmark peaked at 75.49 MiB.
+- Final live overlap smoke passed 2/2 with zero rejects, replay gaps, crossed
+  books, or normalization rejects.
+- Automated tests: 50 passed.
 
-Next exact action: push branch `codex/btc-market-structure-lab`. Creating the
-separate paid Render service still requires explicit approval because the
-estimated recurring base cost is USD 7.25/month. Baseline collection remains
-data work, not strategy validation.
+Next exact action: push branch `codex/btc-market-structure-lab`, then deploy the
+separate Render web service with 2 GB disk. Estimated recurring base cost is
+USD 7.50/month before tax or excess bandwidth. Collection remains data work,
+not strategy validation.

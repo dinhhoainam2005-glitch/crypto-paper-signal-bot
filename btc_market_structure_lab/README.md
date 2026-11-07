@@ -13,12 +13,12 @@ Phase 0 is frozen:
 - Data contract: `DATA_INVENTORY.md`
 - First falsifiable question: `hypotheses/H001_SWEEP_RESPONSE.md`
 - Decision log: `DECISION_LOG.md`
-- Current completed checkpoint: `CHECKPOINT_007.md`
+- Current completed checkpoint: `CHECKPOINT_008.md`
 - Forward protocol: `FORWARD_RECORDING_PROTOCOL.md`
 - Prepared deployment: `DEPLOYMENT.md`
 
-No trading strategy, backtest, deployment, or real-money execution exists in
-this directory yet.
+The service is deployment-ready for a fixed sealed-forward study. No historical
+performance claim, trade strategy, or real-money execution exists here.
 
 ## Run the finite data probe
 
@@ -64,6 +64,10 @@ Run the frozen H001 detector without computing outcomes:
 python -m market_structure.h001_detector artifacts/streams/<run-id>/state_frames.jsonl
 ```
 
+The authoritative frozen evaluator is
+`hypotheses/H001_EVALUATION_SPEC_V2.md`: 30 complete days split 15/7/8, with
+one immutable sealed evaluation after collection completes.
+
 Run the validated finite forward pipeline:
 
 ```powershell
@@ -80,8 +84,7 @@ python -m market_structure.service
 ```
 
 The service exposes `/health`, `/ready`, and `/status`. Cloud deployment is
-prepared but deliberately disabled until its separate recurring cost is
-approved.
+prepared with a 2 GB disk and automatic deploys disabled.
 
 ## Hard boundary
 
